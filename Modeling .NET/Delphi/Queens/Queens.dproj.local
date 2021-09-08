@@ -1,0 +1,9 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<BorlandProject>
+  <Transactions>
+    <Transaction>2009.04.21 20:25:47.906.dproj,C:\Documents and Settings\Vladimir\Мои документы\RAD Studio\Projects\Project1.dproj=D:\TIMKIN\Projects\Modeling .NET\Delphi\Queens\Queens.dproj</Transaction>
+    <Transaction>2009.04.21 20:27:27.031.pas,D:\TIMKIN\Projects\Modeling .NET\Delphi\Queens\Class1.pas=D:\TIMKIN\Projects\Modeling .NET\Delphi\Queens\Queen.pas</Transaction>
+    <Transaction>2009.04.21 20:28:15.718.pas,D:\TIMKIN\Projects\Modeling .NET\Delphi\Queens\Class1.pas=D:\TIMKIN\Projects\Modeling .NET\Delphi\Queens\QueensRun.pas</Transaction>
+    <Transaction>2009.04.21 20:28:56.281.pas,D:\TIMKIN\Projects\Modeling .NET\Delphi\Queens\Class1.pas=D:\TIMKIN\Projects\Modeling .NET\Delphi\Queens\Board.pas</Transaction>
+  </Transactions>
+</BorlandProject>

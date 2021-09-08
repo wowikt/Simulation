@@ -1,0 +1,147 @@
+﻿	<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+		<PropertyGroup>
+			<ProjectGuid>{6FE40F00-8D6E-4862-8382-87527CE92A14}</ProjectGuid>
+			<ProjectVersion>12.0</ProjectVersion>
+			<MainSource>Coroutines.dpr</MainSource>
+			<Config Condition="'$(Config)'==''">Debug</Config>
+			<DCC_DCCCompiler>DCCIL</DCC_DCCCompiler>
+		</PropertyGroup>
+		<PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+			<Base>true</Base>
+		</PropertyGroup>
+		<PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''">
+			<Cfg_1>true</Cfg_1>
+			<CfgParent>Base</CfgParent>
+			<Base>true</Base>
+		</PropertyGroup>
+		<PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_2)'!=''">
+			<Cfg_2>true</Cfg_2>
+			<CfgParent>Base</CfgParent>
+			<Base>true</Base>
+		</PropertyGroup>
+		<PropertyGroup Condition="'$(Base)'!=''">
+			<DCC_DependencyCheckOutputName>Coroutines.exe</DCC_DependencyCheckOutputName>
+			<DCC_ImageBase>00400000</DCC_ImageBase>
+			<DCC_UnitSearchPath>D:\TIMKIN\Projects\Modeling .NET\CSharp\Coroutines\Simulation\bin\Debug;C:\WINDOWS\Microsoft.NET\Framework\v2.0.50727;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+			<DCC_UnitAlias>WinTypes=Borland.Vcl.Windows;WinProcs=Borland.Vcl.Windows;DbiTypes=BDE;DbiProcs=BDE;DbiErrs=BDE;$(DCC_UnitAlias)</DCC_UnitAlias>
+			<UsePackages>true</UsePackages>
+			<DCC_UsePackage>C:\WINDOWS\Microsoft.NET\Framework\v2.0.50727\System.XML.dll;C:\WINDOWS\Microsoft.NET\Framework\v2.0.50727\System.Data.dll;C:\WINDOWS\Microsoft.NET\Framework\v2.0.50727\System.dll;D:\TIMKIN\Projects\Modeling .NET\CSharp\Coroutines\Simulation\bin\Debug\Simulation.dll</DCC_UsePackage>
+			<DCC_N>false</DCC_N>
+			<DCC_S>false</DCC_S>
+			<DCC_K>false</DCC_K>
+			<DCC_E>false</DCC_E>
+			<DCC_F>false</DCC_F>
+		</PropertyGroup>
+		<PropertyGroup Condition="'$(Cfg_1)'!=''">
+			<DCC_LocalDebugSymbols>false</DCC_LocalDebugSymbols>
+			<DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
+			<DCC_SymbolReferenceInfo>0</DCC_SymbolReferenceInfo>
+			<DCC_DebugInformation>false</DCC_DebugInformation>
+		</PropertyGroup>
+		<PropertyGroup Condition="'$(Cfg_2)'!=''">
+			<DCC_Platform>x86</DCC_Platform>
+			<DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
+			<DCC_DebugInfoInExe>true</DCC_DebugInfoInExe>
+			<DCC_UnitSearchPath>D:\TIMKIN\Projects\Modeling .NET\CSharp\Coroutines\Simulation\bin\Debug;C:\WINDOWS\Microsoft.NET\Framework\v2.0.50727;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+		</PropertyGroup>
+		<ItemGroup>
+			<Reference Include="..\CSharp\Coroutines\Simulation\bin\Debug\Simulation.dll">
+				<ContainerId>DelphiDotNetAssemblyCompiler</ContainerId>
+				<ContainerId>DelphiDotNetAssemblyCompiler</ContainerId>
+				<AssemblyName>Simulation</AssemblyName>
+				<Version>1.0.0.0</Version>
+				<HintPath>..\CSharp\Coroutines\Simulation\bin\Debug\Simulation.dll</HintPath>
+				<AssemblyTag>..\CSharp\Coroutines\Simulation\bin\Debug\Simulation.dll</AssemblyTag>
+				<LinkUnits>False</LinkUnits>
+			</Reference>
+			<Reference Include="$(SystemRoot)\Microsoft.NET\Framework\v2.0.50727\System.dll">
+				<ContainerId>DelphiDotNetAssemblyCompiler</ContainerId>
+				<ContainerId>DelphiDotNetAssemblyCompiler</ContainerId>
+				<AssemblyName>System</AssemblyName>
+				<Version>2.0.0.0</Version>
+				<HintPath>$(SystemRoot)\Microsoft.NET\Framework\v2.0.50727\System.dll</HintPath>
+				<AssemblyTag>$(SystemRoot)\Microsoft.NET\Framework\v2.0.50727\System.dll</AssemblyTag>
+				<LinkUnits>False</LinkUnits>
+			</Reference>
+			<Reference Include="$(SystemRoot)\Microsoft.NET\Framework\v2.0.50727\System.Data.dll">
+				<ContainerId>DelphiDotNetAssemblyCompiler</ContainerId>
+				<ContainerId>DelphiDotNetAssemblyCompiler</ContainerId>
+				<AssemblyName>System.Data</AssemblyName>
+				<Version>2.0.0.0</Version>
+				<HintPath>$(SystemRoot)\Microsoft.NET\Framework\v2.0.50727\System.Data.dll</HintPath>
+				<AssemblyTag>$(SystemRoot)\Microsoft.NET\Framework\v2.0.50727\System.Data.dll</AssemblyTag>
+				<LinkUnits>False</LinkUnits>
+			</Reference>
+			<Reference Include="$(SystemRoot)\Microsoft.NET\Framework\v2.0.50727\System.XML.dll">
+				<ContainerId>DelphiDotNetAssemblyCompiler</ContainerId>
+				<ContainerId>DelphiDotNetAssemblyCompiler</ContainerId>
+				<AssemblyName>System.XML</AssemblyName>
+				<Version>2.0.0.0</Version>
+				<HintPath>$(SystemRoot)\Microsoft.NET\Framework\v2.0.50727\System.XML.dll</HintPath>
+				<AssemblyTag>$(SystemRoot)\Microsoft.NET\Framework\v2.0.50727\System.XML.dll</AssemblyTag>
+				<LinkUnits>False</LinkUnits>
+			</Reference>
+		</ItemGroup>
+		<ItemGroup>
+			<DelphiCompile Include="Coroutines.dpr">
+				<MainSource>MainSource</MainSource>
+			</DelphiCompile>
+			<DCCReference Include="MyProc.pas"/>
+			<BuildConfiguration Include="Base">
+				<Key>Base</Key>
+			</BuildConfiguration>
+			<BuildConfiguration Include="Debug">
+				<Key>Cfg_2</Key>
+				<CfgParent>Base</CfgParent>
+			</BuildConfiguration>
+			<BuildConfiguration Include="Release">
+				<Key>Cfg_1</Key>
+				<CfgParent>Base</CfgParent>
+			</BuildConfiguration>
+		</ItemGroup>
+		<Import Project="$(BDS)\Bin\CodeGear.Delphi.Targets" Condition="Exists('$(BDS)\Bin\CodeGear.Delphi.Targets')"/>
+		<ProjectExtensions>
+			<Borland.Personality>DelphiDotNet.Personality.12</Borland.Personality>
+			<Borland.ProjectType/>
+			<BorlandProject>
+				<DelphiDotNet.Personality>
+					<Source>
+						<Source Name="MainSource">Coroutines.dpr</Source>
+					</Source>
+					<Parameters>
+						<Parameters Name="UseLauncher">False</Parameters>
+						<Parameters Name="LoadAllSymbols">True</Parameters>
+						<Parameters Name="LoadUnspecifiedSymbols">False</Parameters>
+					</Parameters>
+					<VersionInfo>
+						<VersionInfo Name="IncludeVerInfo">False</VersionInfo>
+						<VersionInfo Name="AutoIncBuild">False</VersionInfo>
+						<VersionInfo Name="MajorVer">1</VersionInfo>
+						<VersionInfo Name="MinorVer">0</VersionInfo>
+						<VersionInfo Name="Release">0</VersionInfo>
+						<VersionInfo Name="Build">0</VersionInfo>
+						<VersionInfo Name="Debug">False</VersionInfo>
+						<VersionInfo Name="PreRelease">False</VersionInfo>
+						<VersionInfo Name="Special">False</VersionInfo>
+						<VersionInfo Name="Private">False</VersionInfo>
+						<VersionInfo Name="DLL">False</VersionInfo>
+						<VersionInfo Name="Locale">1049</VersionInfo>
+						<VersionInfo Name="CodePage">1251</VersionInfo>
+					</VersionInfo>
+					<VersionInfoKeys>
+						<VersionInfoKeys Name="CompanyName"/>
+						<VersionInfoKeys Name="FileDescription"/>
+						<VersionInfoKeys Name="FileVersion">1.0.0.0</VersionInfoKeys>
+						<VersionInfoKeys Name="InternalName"/>
+						<VersionInfoKeys Name="LegalCopyright"/>
+						<VersionInfoKeys Name="LegalTrademarks"/>
+						<VersionInfoKeys Name="OriginalFilename"/>
+						<VersionInfoKeys Name="ProductName"/>
+						<VersionInfoKeys Name="ProductVersion">1.0.0.0</VersionInfoKeys>
+						<VersionInfoKeys Name="Comments"/>
+					</VersionInfoKeys>
+				</DelphiDotNet.Personality>
+			</BorlandProject>
+			<ProjectFileVersion>12</ProjectFileVersion>
+		</ProjectExtensions>
+	</Project>

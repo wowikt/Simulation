@@ -1,0 +1,26 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 10.00
+# Visual Studio 2008
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ShopMulti", "Shop\ShopMulti.csproj", "{80D7339C-29D3-4489-B67F-5C160E779BAF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Simulation", "..\Coroutines2\Simulation\Simulation.csproj", "{B0B8BE6D-3915-4E62-B843-947DB3EBC79F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{80D7339C-29D3-4489-B67F-5C160E779BAF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{80D7339C-29D3-4489-B67F-5C160E779BAF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{80D7339C-29D3-4489-B67F-5C160E779BAF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{80D7339C-29D3-4489-B67F-5C160E779BAF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B0B8BE6D-3915-4E62-B843-947DB3EBC79F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B0B8BE6D-3915-4E62-B843-947DB3EBC79F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B0B8BE6D-3915-4E62-B843-947DB3EBC79F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B0B8BE6D-3915-4E62-B843-947DB3EBC79F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

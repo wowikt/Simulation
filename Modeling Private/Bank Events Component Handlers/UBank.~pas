@@ -1,0 +1,257 @@
+unit UBank;
+
+interface
+uses USimulation;
+
+type
+  // Класс TClient представляет клиента, обслуживаемого в банке
+  TClient = class(TEventHandler)
+  public
+    // Номер кассира, обслуживающего клиента
+    Index : Integer;
+    StartingTime : Double;
+    procedure DefaultEventProc; override;
+    procedure ServiceFinished;
+  end;
+
+  // Класс TBank - модель банка для автомобилистов
+  TBank = class(TSimulation)
+  public
+    // Очереди к кассирам
+    Queue : array of TList;
+    // Обслуживаемые клиенты
+    Current : array of TClient;
+    // Статистика по загруженности кассиров
+    CashmenStat : array of TServiceStatistics;
+    // Статистика по числу клиентов в банке
+    ClientStat : TActionStatistics;
+    // Статистика по интервалам времени между отъездами клиентов
+    DepartStat : TTimeBetStatistics;
+    // Статистика по времени пребывания клиентов в банке
+    TimeStat : TStatistics;
+    // Статистика по интервалам времени между отказами
+    BalksStat : TTimeBetStatistics;
+    // Количество переходов между очередями
+    JerkCount : Integer;
+    // Количество клиентов, прибывших в банк
+    IncomeCount : Integer;
+    destructor Destroy; override;
+    procedure StopStat; override;
+  protected
+    procedure Init; override;
+    procedure RunSimulation; override;
+  end;
+
+var
+  rndClient : TRandom;
+  // Максимальная длина очереди
+  MaxQueueSize : Integer = 3;
+  // Средний интервал прибытия клиентов
+  MeanArrivalInterval : Double = 0.5;
+  // Параметры времени обслуживания
+  MeanClientTime : Double = 1;
+  DeviationClientTime : Double = 0.3;
+  // Минимальная разница в длинах очередей, чтобы был возможен переход
+  MinQueueDiff : Integer = 2;
+  // Количество касс
+  CashCount : Integer = 2;
+  // Исходное количество клиентов в каждой очереди
+  InitClientCount : Integer = 2;
+  // Время прибытия первого клиента
+  FirstClientArrivalTime : Double = 0.1;
+  // Время моделирования
+  SimulationTime : Double = 1000;
+
+implementation
+
+{ TClient }
+
+procedure TClient.DefaultEventProc;
+var
+  par : TBank;
+begin
+  par := Parent as TBank;
+//  ClearFinished;
+  // Создан новый клиент
+  StartingTime := SimTime;
+  if StartingTime < 10 then
+    WriteLn('New client at ', StartingTime : 5 : 3);
+  Inc(par.IncomeCount);
+  // Если обе очереди заполнены до предела
+  if (par.Queue[0].Size = MaxQueueSize) and
+      (par.Queue[1].Size = MaxQueueSize) then
+  begin
+    // Удалить клиента из системы
+    par.BalksStat.AddData(SimTime);
+    if StartingTime < 10 then
+      WriteLn('Balked.');
+  end
+  else
+  begin
+    // Увеличить число клиентов в системе
+    par.ClientStat.Start(SimTime);
+    // Выбрать более короткую очередь
+    if par.Queue[0].Size <= par.Queue[1].Size then
+      Index := 0
+    else
+      Index := 1;
+    if SimTime < 10 then
+      WriteLn('Inserted in queue ', Index);
+    // Встать в нее
+    Insert(par.Queue[Index]);
+    // Если выбранный кассир свободен
+    if par.Current[Index] = nil then
+    begin
+      // Извлечь клиента из очереди и поставить его на обслуживание
+      Remove;
+      par.Current[Index] := Self;
+      // Начать обслуживание
+      par.CashmenStat[Index].Start(SimTime);
+      // Запланировать событие окончания обслуживания
+      ReactivateDelay(rndClient.Normal(MeanClientTime, DeviationClientTime),
+          ServiceFinished);
+    end
+    else
+      Suspend;
+  end;
+  // Запланировать прибытие следующего клиента
+  TClient.Create.ActivateDelay(rndClient.Exponential(MeanArrivalInterval));
+end;
+
+procedure TClient.ServiceFinished;
+var
+  par : TBank;
+  Client : TClient;
+  st : Double;
+begin
+  par := Parent as TBank;
+  // Собрать статистику по завершенному обслуживанию
+  st := SimTime;
+  par.TimeStat.AddData(SimTime - StartingTime);
+  par.DepartStat.AddData(SimTime);
+  par.CashmenStat[Index].Finish(st);
+  if st < 10 then
+    WriteLn('Client at index ', Index, ' finished at ', st : 5 : 3);
+  // Удалить клиента из системы
+  par.ClientStat.Finish(SimTime);
+  // Если в текущей очереди есть клиенты
+  if par.Queue[index].Size > 0 then
+  begin
+    // Извлечь первого и поставить на обслуживание
+    Client := par.Queue[Index].First as TClient;
+    par.Current[Index] := Client;
+    Client.Remove;
+    // Начать обслуживание
+    par.CashmenStat[Index].Start(SimTime);
+    // Запланировать событие окончания обслуживания
+    Client.
+        ActivateDelay(rndClient.Normal(MeanClientTime, DeviationClientTime),
+        Client.ServiceFinished);
+    // Если в другой очереди клиентов больше, чем в текущей, как минимум на 2
+    if par.Queue[1 - Index].Size >= par.Queue[Index].Size + MinQueueDiff then
+    begin
+      // Перевести клиента из другой очереди в текущую
+      Client := par.Queue[1 - Index].Last as TClient;
+      Client.Insert(par.Queue[Index]);
+      Inc(par.JerkCount);
+    end;
+  end
+  else
+    // Если клиентов нет, кассир свободен
+    par.Current[Index] := nil;
+end;
+
+{ TBank }
+
+destructor TBank.Destroy;
+var
+  i : Integer;
+begin
+  for i := 0 to CashCount - 1 do
+    Current[i].Free;
+  SetLength(Current, 0);
+  BalksStat.Free;
+  for i := 0 to CashCount - 1 do
+    CashmenStat[i].Free;
+  SetLength(CashmenStat, 0);
+  ClientStat.Free;
+  DepartStat.Free;
+  TimeStat.Free;
+  for i := 0 to CashCount - 1 do
+    Queue[i].Free;
+  SetLength(Queue, 0);
+  inherited;
+end;
+
+procedure TBank.Init;
+var
+  i : Integer;
+begin
+  inherited;
+  BalksStat := TTimeBetStatistics.Create;
+  SetLength(CashmenStat, CashCount);
+  for i := 0 to CashCount - 1 do
+    CashmenStat[i] := TServiceStatistics.Create;
+  ClientStat := TActionStatistics.Create;
+  SetLength(Current, CashCount);
+  for i := 0 to CashCount - 1 do
+    Current[i] := nil;
+  DepartStat := TTimeBetStatistics.Create;
+  JerkCount := 0;
+  IncomeCount := 0;
+  SetLength(Queue, CashCount);
+  for i := 0 to CashCount - 1 do
+    Queue[i] := TList.Create;
+  TimeStat := TStatistics.Create;
+end;
+
+procedure TBank.RunSimulation;
+var
+  i, j : Integer;
+  clt : TClient;
+begin
+  // Создание исходной конфигурации системы
+  for i := 0 to CashCount - 1 do
+  begin
+    // Создать клиента и поставить его на обслуживание
+    Current[i] := TClient.Create;
+    Current[i].StartingTime := 0;
+    Current[i].Index := i;
+    Inc(IncomeCount);
+    // Запланировать событие окончания обслуживания
+    Current[i].
+        ActivateDelay(rndClient.Normal(MeanClientTime, DeviationClientTime),
+        Current[i].ServiceFinished);
+    CashmenStat[i].Start(0);
+    ClientStat.Start(0);
+    for j := 0 to InitClientCount - 1 do
+    begin
+      // Создать клиента и поставить его в очередь
+      clt := TClient.Create;
+      clt.Insert(Queue[i]);
+      clt.StartingTime := 0;
+      clt.Index := i;
+      Inc(IncomeCount);
+      ClientStat.Start(0);
+    end;
+  end;
+  // Запланировать прибытие очередного клиента
+  TClient.Create.ActivateDelay(FirstClientArrivalTime);
+  // ОЖидать окончания имитации
+  Hold(SimulationTime);
+  StopStat;
+end;
+
+procedure TBank.StopStat;
+var
+  i : Integer;
+begin
+  inherited;
+  for i := 0 to CashCount - 1 do
+    CashmenStat[i].StopStat(SimTime);
+  ClientStat.StopStat(SimTime);
+  for i := 0 to CashCount - 1 do
+    Queue[i].StopStat(SimTime);
+end;
+
+end.

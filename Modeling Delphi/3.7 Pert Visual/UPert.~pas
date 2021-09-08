@@ -1,0 +1,200 @@
+unit UPert;
+
+interface
+uses USimulation;
+
+type
+  // Узел сети
+  TNode = class(TProcess)
+  public
+    // Список исходящих дуг
+    OutArcs : TList;
+    // Счетчик завершенных входящих дуг
+    IncomeArcs : Integer;
+    // Количество входящих дуг, которые должны быть завершены
+    //   для готовности узла
+    LimitIncomeArcs : Integer;
+    // Является ли узел начальным или конечным
+    First, Last : Boolean;
+    // Объект сбора статистики узла
+    NodeStat : TStatistics;
+    // Объект сбора гистограммы
+    NodeHist : THistogram;
+    constructor Create(Stat : TStatistics; Hist : THistogram);
+    destructor Destroy; override;
+  protected
+    procedure RunProcess; override;
+  end;
+
+  // Дуга сети
+  TArc = class(TProcess)
+  public
+    // Конечный узел дуги
+    ToNode : TNode;
+    // Время выполнения работы
+    ActionTime : Double;
+    constructor Create(AToNode : TNode; ActTime : Double);
+  protected
+    procedure RunProcess; override;
+  end;
+
+  TPert = class(TSimulation)
+  public
+    // Массив узлов
+    Nodes : array of TProcess;
+    destructor Destroy; override;
+  protected
+    procedure RunSimulation; override;
+    procedure Init; override;
+  end;
+
+// Число узлов и дуг
+const
+  NodeCount = 6;
+  ArcCount = 9;
+
+// Структура информации по каждой дуге
+type
+  TArcData = record
+    FromNode, ToNode : Integer;
+    MinTime, ModaTime, MaxTime : Double;
+  end;
+
+var
+  rndArc : TRandom;
+  // Исходные данные о конфигурации сети
+  ArcData : array [0 .. ArcCount - 1] of TArcData = (
+      (FromNode : 0; ToNode : 1; MinTime :  1; ModaTime :  3; MaxTime :  5),
+      (FromNode : 0; ToNode : 2; MinTime :  3; ModaTime :  6; MaxTime :  9),
+      (FromNode : 0; ToNode : 3; MinTime : 10; ModaTime : 13; MaxTime : 19),
+      (FromNode : 1; ToNode : 4; MinTime :  3; ModaTime :  9; MaxTime : 12),
+      (FromNode : 1; ToNode : 2; MinTime :  1; ModaTime :  3; MaxTime :  8),
+      (FromNode : 2; ToNode : 5; MinTime :  8; ModaTime :  9; MaxTime : 16),
+      (FromNode : 2; ToNode : 3; MinTime :  4; ModaTime :  7; MaxTime : 13),
+      (FromNode : 4; ToNode : 5; MinTime :  3; ModaTime :  6; MaxTime :  9),
+      (FromNode : 3; ToNode : 5; MinTime :  1; ModaTime :  3; MaxTime :  8)
+  );
+  // Объекты сбора статистики
+  NodeStat : array [0 .. NodeCount - 1] of TStatistics;
+  NodeHist : array [0 .. NodeCount - 1] of THistogram;
+  RunCount : Integer = 400;
+  HistMin : array [1 .. NodeCount - 1] of Double =
+      (1, 3, 10, 4, 11);
+  HistStep : array [1 .. NodeCount - 1] of Double =
+      (0.2, 0.5, 1, 0.5, 1);
+  HistStepCount : array [1 .. NodeCount - 1] of Integer =
+      (20, 20, 16, 26, 23);
+
+implementation
+
+{ TNode }
+
+constructor TNode.Create(Stat : TStatistics; Hist : THistogram);
+begin
+  LimitIncomeArcs := 0;
+  IncomeArcs := 0;
+  First := False;
+  Last := False;
+  OutArcs := TList.Create;
+  NodeStat := Stat;
+  NodeHist := Hist;
+  inherited Create;
+end;
+
+destructor TNode.Destroy;
+begin
+  OutArcs.Free;
+  inherited;
+end;
+
+procedure TNode.RunProcess;
+var
+  par : TPert;
+begin
+  par := Parent as TPert;
+  // Ожидать завершения всех входящих дуг
+  while IncomeArcs < LimitIncomeArcs do
+    Passivate;
+  // Собрать статистику по времени готовности (кроме начального узла)
+  if not First then
+  begin
+    NodeStat.AddData(SimTime);
+    NodeHist.AddData(SimTime);
+  end;
+  // Последний узел завершает имитацию
+  if Last then
+    par.ActivateDelay(0)
+  // Все остальные - запускают исходящие дуги
+  else
+    ActivateAllDelay(OutArcs, 0);
+end;
+
+{ TArc }
+
+constructor TArc.Create(AToNode : TNode; ActTime : Double);
+begin
+  ToNode := AToNode;
+  ActionTime := ActTime;
+  inherited Create;
+end;
+
+procedure TArc.RunProcess;
+begin
+  // Выполнить работу
+  Hold(ActionTime);
+  // Сообщить узлу о завершении работы
+  Inc(ToNode.IncomeArcs);
+  ToNode.ActivateDelay(0);
+end;
+
+{ TPert }
+
+destructor TPert.Destroy;
+var
+  i : Integer;
+begin
+  for i := 0 to NodeCount - 1 do
+    Nodes[i].Free;
+  inherited;
+end;
+
+procedure TPert.Init;
+var
+  i : Integer;
+begin
+  inherited;
+  // Создать узлы
+  SetLength(Nodes, NodeCount);
+  for i := 0 to NodeCount - 1 do
+    Nodes[i] := TNode.Create(NodeStat[i], NodeHist[i]);
+  // Пометить начальный и конечный
+  (Nodes[0] as TNode).First := True;
+  (Nodes[NodeCount - 1] as TNode).Last := True;
+  // Создать дуги
+  for i := 0 to ArcCount - 1 do
+  begin
+    with ArcData[i] do
+    begin
+      // задается конечный узел,
+      TArc.Create(Nodes[ToNode] as TNode,
+          //   время выполнения работы
+//          rndArc.Triangular(MinTime, ModaTime, MaxTime)).
+          Max(MinTime, Min(MaxTime,
+          rndArc.Normal(ModaTime, (MaxTime - MinTime) / 4)))).
+          // Вставить в список исходящих дуг соответствующего узла
+          Insert((Nodes[FromNode] as TNode).OutArcs);
+      // Посчитать в соответствующем узле
+      Inc((Nodes[ToNode] as TNode).LimitIncomeArcs);
+    end;
+  end;
+end;
+
+procedure TPert.RunSimulation;
+begin
+  // Запустить все узлы
+  ActivateAllDelay(Nodes, 0);
+  // Ждать завершения
+  Passivate;
+end;
+
+end.

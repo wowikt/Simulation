@@ -1,0 +1,357 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ClassDiagram MajorVersion="1" MinorVersion="1">
+  <Class Name="Simulation.ActionStatistics" Collapsed="true">
+    <Position X="21.75" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>BAAAAAAAADAAAAAGAAwABAAAAAKAAAEMBAAAAAgIAAg=</HashCode>
+      <FileName>ActionStatistics.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Activators" Collapsed="true">
+    <Position X="23.5" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>hAAAAwAAAAAARAACAAAEgRAAAAAEAAAAAAAAQBQABAA=</HashCode>
+      <FileName>Activators.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Collector" Collapsed="true">
+    <Position X="8" Y="4.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAA=</HashCode>
+      <FileName>Collector.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Component" Collapsed="true">
+    <Position X="7" Y="1.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAoAAAQAAAAAQACAAAAAQABCAAAAFgAAAACAAAAAAgQ=</HashCode>
+      <FileName>Component.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="Simulation.ComponentEventNotice" Collapsed="true">
+    <Position X="17" Y="3.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAEAAAAAAABAAAAAAAAAABAAAAAAAg=</HashCode>
+      <FileName>ComponentEventNotice.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.ContinueSim" Collapsed="true">
+    <Position X="25.25" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>ContinueSim.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Coroutine" Collapsed="true">
+    <Position X="0.5" Y="6.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AgRAAECAAAAAAAcAAEBABEAQAAQgQGIAIAEQAAAGAEo=</HashCode>
+      <FileName>Coroutine.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="Simulation.DirectEvent" Collapsed="true">
+    <Position X="14.75" Y="3.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAEABAAAAAAQABAAAAAQAAEAAAABAAAAAJAAAEAAAA=</HashCode>
+      <FileName>DirectEvent.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="Simulation.Dispatcher" Collapsed="true">
+    <Position X="27" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAEAAAI=</HashCode>
+      <FileName>Dispatcher.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.ESimulationException" Collapsed="true">
+    <Position X="21.75" Y="1.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>ESimulationException.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.SchedulableEventNotice" Collapsed="true">
+    <Position X="17" Y="1.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>ABAAAAAAAIAAAAAAAAAAAAAAAACAAAAQAABIAAAAAAA=</HashCode>
+      <FileName>EventNotice.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Generator&lt;T&gt;" Collapsed="true">
+    <Position X="3.5" Y="6" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>Generator.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Global" Collapsed="true">
+    <Position X="23.5" Y="1.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>BAgAAQAAQAAAAQAAAEQAAAgAAAAAAAAAAAAAAAEAAAA=</HashCode>
+      <FileName>Global.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.GridDisplay" Collapsed="true">
+    <Position X="25.25" Y="1.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AEAIAAAAAAAAAAAAiAAAACAAAAAAAAAAAAAEAAAIBAA=</HashCode>
+      <FileName>GridDisplay.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Histogram" Collapsed="true">
+    <Position X="0.5" Y="1.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAIEABAAEAIAAAAQAAAAAABAAAAAACABAAAA=</HashCode>
+      <FileName>Histogram.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.HistogramBase" Collapsed="true">
+    <Position X="1.75" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>BAAIAAAACAEAAAABAAAAAAAAAAkAAAAAIAAACABAAAA=</HashCode>
+      <FileName>HistogramBase.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.IntervalHistogram" Collapsed="true">
+    <Position X="2.75" Y="1.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAIEAAAAEAAAAAAAAAAAIABEAAAAACABAAQA=</HashCode>
+      <FileName>IntervalHistogram.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.IntervalStatistics" Collapsed="true">
+    <Position X="27" Y="1.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>BAAAAAAAAJAAAAAGEAiAAAAAAAKAAAEEBAAAAAAIAAA=</HashCode>
+      <FileName>IntervalStatistics.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Link" Collapsed="true">
+    <Position X="10.25" Y="0.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AgRAAEAAAAAAAAEAAEBABAAAAAQgQGIAIAEQAAACAEg=</HashCode>
+      <FileName>Link.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="Simulation.Node" Collapsed="true">
+    <Position X="4.75" Y="4.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AACAAAAAAAAAAAEAAAgAAACAAAAAACAAAAACABAAEAA=</HashCode>
+      <FileName>Node.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Process" Collapsed="true">
+    <Position X="0.5" Y="8" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAsEABRAEBIAQATBAAAAUABGAwyAFgAAAACCACEIAg4=</HashCode>
+      <FileName>Process.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="Simulation.ProcessEventNotice" Collapsed="true">
+    <Position X="19.25" Y="3.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAJAAAAAAAg=</HashCode>
+      <FileName>ProcessEventNotice.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Queue" Collapsed="true">
+    <Position X="9.5" Y="9.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>DgRAAEAAAAAAgQEEAAoAAAAAEAAgAmIAAgASAABKAEg=</HashCode>
+      <FileName>Queue.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="Simulation.Queue&lt;T&gt;" Collapsed="true">
+    <Position X="9.5" Y="10.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>CgAAAEAAAAAAAQEAAAAAAAAAAAAAAEIAAAACAAACAAA=</HashCode>
+      <FileName>Queue.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.QueueNode" Collapsed="true">
+    <Position X="5.75" Y="6" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAEAAAgABACAAAAAAAAAACAAAAAAEAA=</HashCode>
+      <FileName>QueueNode.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Random" Collapsed="true">
+    <Position X="21.75" Y="2.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AACAQAAgAAAQAgAAAQAAASAAAAAIAAAAAAAJAAAABgA=</HashCode>
+      <FileName>Random.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.SchedulableComponent" Collapsed="true">
+    <Position X="7" Y="3.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAEEABBAFBIAQABhACAAUAAEAwQABAAEAAAAICEIEAo=</HashCode>
+      <FileName>SchedulableComponent.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="Simulation.Service" Collapsed="true" BaseTypeListCollapsed="true">
+    <Position X="23.5" Y="2.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAACAAAQCAiCIQAAAkAAAACQAAAAABAAAAAAEAIAAg=</HashCode>
+      <FileName>Service.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" Collapsed="true" />
+  </Class>
+  <Class Name="Simulation.ServiceAgent" Collapsed="true">
+    <Position X="10.25" Y="4.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAABAAABCAAAAAAAAAAAAAAAAAAAAAEAAAAACIAAAA=</HashCode>
+      <FileName>ServiceAgent.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.ServiceSelector" Collapsed="true">
+    <Position X="25.25" Y="2.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>gAAAAAAAIAAAAAAAAAAAAAAAQAAAAAAAAAAAACAAAAA=</HashCode>
+      <FileName>ServiceSelector.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.ServiceStatistics" Collapsed="true">
+    <Position X="27" Y="2.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>BQBAgBAAACAAAABGBAxAAAQIQAKAAAEMBgAAAAiJAQg=</HashCode>
+      <FileName>ServiceStatistics.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.SimComponent" Collapsed="true">
+    <Position X="1.25" Y="4.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>IAAAEAQAACIAAgAAgAwAAEAEAAAAAAAMAAACAAEMAAo=</HashCode>
+      <FileName>SimComponent.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="Simulation.SimProc" Collapsed="true">
+    <Position X="0.5" Y="9.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>IAAAEAQAACIAAgAAgAwAAAAEAAAAAAAMAAAAAAEIAAo=</HashCode>
+      <FileName>SimProc.cs</FileName>
+    </TypeIdentifier>
+    <Lollipop Position="0.2" />
+  </Class>
+  <Class Name="Simulation.Statistics" Collapsed="true">
+    <Position X="9.5" Y="6.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>BAAAAAAAAJAAAAAGEAgAAAQAAACAAAAEBAAAAAAAAAA=</HashCode>
+      <FileName>Statistics.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.StopSim" Collapsed="true">
+    <Position X="21.75" Y="3.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>StopSim.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.TimeBetStatistics" Collapsed="true">
+    <Position X="9.5" Y="7.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAIAAAAAAAAgAAAAAAAIAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>TimeBetStatistics.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Simulation.Visualizer" Collapsed="true">
+    <Position X="12.5" Y="4.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAIAAAAAAAAAAAAAAAAAAAAAAAAI=</HashCode>
+      <FileName>Visualizer.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Interface Name="Simulation.IAction" Collapsed="true">
+    <Position X="21.75" Y="4.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAACAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>IAction.cs</FileName>
+    </TypeIdentifier>
+  </Interface>
+  <Interface Name="Simulation.IActivatable" Collapsed="true">
+    <Position X="3.5" Y="7.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAEABAAAAAAQABAAAAAQAAEAAAABAAAAAAAAAAAAAA=</HashCode>
+      <FileName>IActivatable.cs</FileName>
+    </TypeIdentifier>
+  </Interface>
+  <Interface Name="Simulation.IComponent" Collapsed="true">
+    <Position X="6.5" Y="10.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAQAAAAAQAAAAAAAQABCAAAAFgAAAAAAAAAAAgQ=</HashCode>
+      <FileName>IComponent.cs</FileName>
+    </TypeIdentifier>
+  </Interface>
+  <Interface Name="Simulation.ILink" Collapsed="true">
+    <Position X="6.5" Y="8.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAEAAAAAAAAEAAEBABAAAAAQAQAAAIAEAAAACAAA=</HashCode>
+      <FileName>ILink.cs</FileName>
+    </TypeIdentifier>
+  </Interface>
+  <Interface Name="Simulation.ILinkage" Collapsed="true">
+    <Position X="6.5" Y="7.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AgQAAAAAAAAAAAAAAAAAAAAAAAAgAEIAAAAQAAAAAEg=</HashCode>
+      <FileName>ILinkage.cs</FileName>
+    </TypeIdentifier>
+  </Interface>
+  <Interface Name="Simulation.IMainSimulation" Collapsed="true">
+    <Position X="3.5" Y="10.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAEAAAACAAIgAAAAwAAAAAAAAAAAAMAAAAAAEMAAg=</HashCode>
+      <FileName>IMainSimulation.cs</FileName>
+    </TypeIdentifier>
+  </Interface>
+  <Interface Name="Simulation.ISchedulable" Collapsed="true">
+    <Position X="3.5" Y="8.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAABAABIAAAABAAAAEAAAAwQAAAAAAAAAACAIAAg=</HashCode>
+      <FileName>ISchedulable.cs</FileName>
+    </TypeIdentifier>
+  </Interface>
+  <Delegate Name="Simulation.ActionEventProc" Collapsed="true">
+    <Position X="21.75" Y="5.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAA=</HashCode>
+      <FileName>ActionEventProc.cs</FileName>
+    </TypeIdentifier>
+  </Delegate>
+  <Delegate Name="Simulation.ConditionFunc" Collapsed="true">
+    <Position X="23.5" Y="5.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>ConditionFunc.cs</FileName>
+    </TypeIdentifier>
+  </Delegate>
+  <Delegate Name="Simulation.DurationFunc" Collapsed="true">
+    <Position X="25.25" Y="5.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgAAAAAAAAA=</HashCode>
+      <FileName>DurationFunc.cs</FileName>
+    </TypeIdentifier>
+  </Delegate>
+  <Delegate Name="Simulation.EventProc" Collapsed="true">
+    <Position X="27" Y="5.75" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>EventProc.cs</FileName>
+    </TypeIdentifier>
+  </Delegate>
+  <Delegate Name="Simulation.NodeEventProc" Collapsed="true">
+    <Position X="21.75" Y="6.5" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAA=</HashCode>
+      <FileName>NodeEventProc.cs</FileName>
+    </TypeIdentifier>
+  </Delegate>
+  <Font Name="Tahoma" Size="8.25" />
+</ClassDiagram>

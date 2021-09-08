@@ -1,0 +1,787 @@
+<?xml version="1.0"?>
+<doc>
+    <assembly>
+        <name>Simulation</name>
+    </assembly>
+    <members>
+        <member name="T:Simulation.EventNotice">
+            <summary>
+            Класс EventNotice - ячейка календаря событий
+            </summary>
+        </member>
+        <member name="T:Simulation.Link">
+            <summary>
+            Класс Link - базовый класс внутреннего узла списка
+            </summary>
+        </member>
+        <member name="T:Simulation.Linkage">
+            <summary>
+            Класс Linkage - базовый для построения связных списков и многих объектов моделирования
+            </summary>
+        </member>
+        <member name="F:Simulation.Linkage.FPrev">
+            <summary>
+            Поле связи. Ссылка на предыдущий узел списка
+            </summary>
+        </member>
+        <member name="F:Simulation.Linkage.FNext">
+            <summary>
+            Поле связи. Ссылка на следующий узел списка
+            </summary>
+        </member>
+        <member name="M:Simulation.Linkage.#ctor">
+            <summary>
+            Конструктор. Устанавливает пустые поля связи
+            </summary>
+        </member>
+        <member name="M:Simulation.Linkage.Finish">
+            <summary>
+            Заготовка для метода завершения работы объекта.
+            В данном классе ничего не делает
+            </summary>
+        </member>
+        <member name="P:Simulation.Linkage.Prev">
+            <summary>
+            Только для чтения. Ссылка на предыдущий узел, 
+            если он является внутренней ячейкой списка.
+            В противном случае - null.
+            </summary>
+        </member>
+        <member name="P:Simulation.Linkage.Next">
+            <summary>
+            Только для чтения. Ссылка на следующий узел, 
+            если он является внутренней ячейкой списка.
+            В пртивном случае - null.
+            </summary>
+        </member>
+        <member name="F:Simulation.Link.InsertTime">
+            <summary>
+            Имитационное время вставки узла в список.
+            Используется для сбора статистики по времени нахождения узлов в списке.
+            </summary>
+        </member>
+        <member name="M:Simulation.Link.GetHeader">
+            <summary>
+            Возвращает ссылку на заголовочную ячейку списка, в котором находится узел
+            </summary>
+            <returns>Ссылка на заголовочную ячейку</returns>
+        </member>
+        <member name="M:Simulation.Link.InsertAfter(Simulation.Linkage)">
+            <summary>
+            Вставка узла в список после указанного
+            </summary>
+            <param name="l">Узел, после которого следует вставлять текущий</param>
+        </member>
+        <member name="M:Simulation.Link.InsertBefore(Simulation.Linkage)">
+            <summary>
+            Вставка узла в список перед указанным
+            </summary>
+            <param name="l">Узел, перед которым следует вставлять текущий</param>
+        </member>
+        <member name="M:Simulation.Link.Insert(Simulation.SimList)">
+            <summary>
+            Вставка узла в список. 
+            Если для узла задана собственная функция сравнения, вставка производится с ее использованием.
+            В противном случае узел вставляется в список последним
+            </summary>
+            <param name="l">Ссылка на заголовочную ячейку списка, в который вставляется текущий узел</param>
+        </member>
+        <member name="M:Simulation.Link.Insert(Simulation.SimList,Simulation.CompareFunction)">
+            <summary>
+            Вставка узла в список с использованием указанной функции сравнения
+            </summary>
+            <param name="l">Ссылка на заголовочную ячейку списка, в который вставляется узел</param>
+            <param name="cmp">Функция сравнения, которую следует использоватьпри вставке узла</param>
+        </member>
+        <member name="M:Simulation.Link.InsertFirst(Simulation.SimList)">
+            <summary>
+            Вставка узла в первую позицию списка
+            </summary>
+            <param name="l">Ссылка на заголовочную ячейку списка, в который вставляется узел</param>
+        </member>
+        <member name="M:Simulation.Link.InsertLast(Simulation.SimList)">
+            <summary>
+            Вставка узла в последнюю позицию списка
+            </summary>
+            <param name="l">Ссылка на заголовочную ячейку списка, в который вставляется узел</param>
+        </member>
+        <member name="M:Simulation.Link.Remove">
+            <summary>
+            Исключение узла из списка, в котором он находится
+            </summary>
+        </member>
+        <member name="M:Simulation.Link.Finish">
+            <summary>
+            Завершение работы узла. Узел исключается из списка.
+            В переопределенном методе производного класса 
+            ПОСЛЕДНИМ оператором должен быть base.Finish();
+            </summary>
+        </member>
+        <member name="M:Simulation.EventNotice.#ctor(System.Double,Simulation.Process)">
+            <summary>
+            Конструктор. Записывает значения параметров в поля объекта
+            </summary>
+            <param name="time">Время наступления события</param>
+            <param name="proc">Процесс, активируемый при наступлении события</param>
+        </member>
+        <member name="F:Simulation.EventNotice.EventTime">
+            <summary>
+            Имитационное время наступления события
+            </summary>
+        </member>
+        <member name="F:Simulation.EventNotice.Proc">
+            <summary>
+            Процесс, который активируется при наступлении события
+            </summary>
+        </member>
+        <member name="M:Simulation.EventNotice.InsertPrior(Simulation.SimList)">
+            <summary>
+            Вставка в календарь событий до всех уведомлений с тем же значением времени
+            </summary>
+            <param name="l">Календарь событий</param>
+        </member>
+        <member name="M:Simulation.EventNotice.SetTime(System.Double)">
+            <summary>
+            Изменение времени наступления события и перестановка уведомления в календаре
+            после всех уведомлений с равным временем наступления события
+            </summary>
+            <param name="newTime">Новое время наступления события</param>
+        </member>
+        <member name="M:Simulation.EventNotice.SetTimePrior(System.Double)">
+            <summary>
+            Изменение времени наступления события и перестановка уведомления в календаре
+            до всех уведомлений с равным временем наступления события
+            </summary>
+            <param name="newTime">Новое время наступления события</param>
+        </member>
+        <member name="T:Simulation.Process">
+            <summary>
+            Класс Process - базовый класс процесса, выполняемого при исполнении имитации
+            </summary>
+        </member>
+        <member name="T:Simulation.Coroutine">
+            <summary>
+            Класс Coroutine - базовый класс для построения сопрограмм
+            </summary>
+        </member>
+        <member name="M:Simulation.Coroutine.#ctor">
+            <summary>
+            Конструктор. Создает всю необходимую инфраструктуру и обеспечивает исполнение начального фрагмента алгоритма
+            </summary>
+        </member>
+        <member name="F:Simulation.Coroutine.TerminatedState">
+            <summary>
+            Поле, указывающее на завершенное состояние сопрограммы. 
+            Доступно для чтения посредством свойства Terminated.
+            </summary>
+        </member>
+        <member name="F:Simulation.Coroutine.MySem">
+            <summary>
+            Семафор, управляющий работой сопрограммы
+            </summary>
+        </member>
+        <member name="F:Simulation.Coroutine.Owner">
+            <summary>
+            Сопрограмма-владелец текущей или null, если владельцем является главный поток
+            </summary>
+        </member>
+        <member name="M:Simulation.Coroutine.Execute">
+            <summary>
+            Метод, обеспечивающий исполнение потока сопрограммы. Организует исполнение метода Run() в контесте сопрограммы.
+            Никогда не должен переопределяться.
+            </summary>
+        </member>
+        <member name="M:Simulation.Coroutine.Run">
+            <summary>
+            Основной алгоритм работы сопрограммы. 
+            Должен переопределяться в производных классах.
+            В данном классе ничего не делает.
+            </summary>
+        </member>
+        <member name="M:Simulation.Coroutine.SwitchTo">
+            <summary>
+            Переключение к данной сопрограмме
+            </summary>
+        </member>
+        <member name="M:Simulation.Coroutine.SwitchTo(Simulation.Coroutine)">
+            <summary>
+            Переключение к заданной сопрограмме
+            </summary>
+            <param name="cor">Активируемая сопрограмма</param>
+        </member>
+        <member name="M:Simulation.Coroutine.Detach">
+            <summary>
+            Переключение к сопрограмме-владельцу
+            </summary>
+        </member>
+        <member name="M:Simulation.Coroutine.Finish">
+            <summary>
+            Завершение работы сопрограммы. 
+            Все сопрограммы, созданные в программе, 
+            обязательно должны завершаться с помощью этого метода.
+            В противном случае завершение работы или продолжение программы
+            будут происходить некорректно.
+            </summary>
+        </member>
+        <member name="P:Simulation.Coroutine.Terminated">
+            <summary>
+            Указывает, завершена ли работа сопрограммы
+            </summary>
+        </member>
+        <member name="M:Simulation.Process.#ctor">
+            <summary>
+            Конструктор. Устанавливает ссылку на родительскую имитацию.
+            </summary>
+        </member>
+        <member name="F:Simulation.Process.Parent">
+            <summary>
+            Процесс имитации, в рамках которой выполняется данный процесс
+            </summary>
+        </member>
+        <member name="F:Simulation.Process.StartingTime">
+            <summary>
+            Имитационное время начала работы процесса
+            </summary>
+        </member>
+        <member name="F:Simulation.Process.TimeLeft">
+            <summary>
+            Имитационное время, оставшееся до выполнения незавершенного действия.
+            Используется, если текущее действие было перехвачено другим процессом.
+            </summary>
+        </member>
+        <member name="F:Simulation.Process.Event">
+            <summary>
+            Уведомление о событии, связанное с процессом
+            </summary>
+        </member>
+        <member name="M:Simulation.Process.Execute">
+            <summary>
+            Организует исполнение метода Run() в контексте процесса
+            </summary>
+        </member>
+        <member name="M:Simulation.Process.Finish">
+            <summary>
+            Завершение работы процесса. Удаляет уведомление о событии из календаря.
+            В переопределенном методе производного класса ОБЯЗАТЕЛЬНО должен вызываться ПОСЛЕДНИМ.
+            </summary>
+        </member>
+        <member name="M:Simulation.Process.Run">
+            <summary>
+            Основной алгоритм работы процесса. Должен быть переопределен в производном классе.
+            В данном классе ничего не делает.
+            </summary>
+        </member>
+        <member name="M:Simulation.Process.SimTime">
+            <summary>
+            Выозвращает текущее имитационное время. 
+            Обращается к родительскому процесу имитации.
+            </summary>
+            <returns>Текущее имитационное время</returns>
+        </member>
+        <member name="M:Simulation.Process.StartRunning">
+            <summary>
+            Помещает процесс в список свободных процессов
+            </summary>
+        </member>
+        <member name="P:Simulation.Process.EventTime">
+            <summary>
+            Время наступления события данного процесса. 
+            Если события нет, большая отрицательная величина (-1e300).
+            </summary>
+        </member>
+        <member name="P:Simulation.Process.Idle">
+            <summary>
+            Указывает, находится ли процесс в пассивном или завершенном состоянии
+            </summary>
+        </member>
+        <member name="T:Simulation.Simulation">
+            <summary>
+            Класс Simulation - главный процесс имитации
+            </summary>
+        </member>
+        <member name="M:Simulation.Simulation.#ctor">
+            <summary>
+            Конструктор.
+            </summary>
+        </member>
+        <member name="F:Simulation.Simulation.Calendar">
+            <summary>
+            Календарь событий
+            </summary>
+        </member>
+        <member name="F:Simulation.Simulation.CurrentSimTime">
+            <summary>
+            Текущее имитационное время
+            </summary>
+        </member>
+        <member name="M:Simulation.Simulation.SimTime">
+            <summary>
+            Возвращает текущее имитационное время данной имитации
+            </summary>
+            <returns>Имитационное время</returns>
+        </member>
+        <member name="T:Simulation.SimGlobal">
+            <summary>
+            Класс SimGlobal содержит основные глобальные переменные и методы, управляющие процессом имитации.
+            Выполняет переключение потоков в режиме сопрограмм.
+            </summary>
+        </member>
+        <member name="F:Simulation.SimGlobal.GlSem">
+            <summary>
+            Семафор, управляющий работой главного потока
+            </summary>
+        </member>
+        <member name="F:Simulation.SimGlobal.CurrProc">
+            <summary>
+            Ссылка на текущую исполняемую сопрограмму
+            </summary>
+        </member>
+        <member name="F:Simulation.SimGlobal.CurrSim">
+            <summary>
+            Текущая исполняемая имитация
+            </summary>
+        </member>
+        <member name="M:Simulation.SimGlobal.SwitchTo(Simulation.Coroutine)">
+            <summary>
+            Передача управления заданной сопрограмме
+            </summary>
+            <param name="cor">Активируемая сопрограмма</param>
+        </member>
+        <member name="M:Simulation.SimGlobal.Detach">
+            <summary>
+            Передача управления сопрограмме - владельцу текущей исполняемой
+            </summary>
+        </member>
+        <member name="M:Simulation.SimGlobal.SimTime">
+            <summary>
+            Возвращает текущее имитационное время, соответствующее активной исполняемой имитации
+            </summary>
+            <returns>Текущее имитационное время</returns>
+        </member>
+        <member name="T:Simulation.CompareFunction">
+            <summary>
+            Делегат для определения функции сравнения, определяющей место вставки узла в список.
+            Вставляемый узел помещается в список перед первым узлом, для которого функция дает результат true.
+            </summary>
+            <param name="a">Ссылка на вставляемый узел</param>
+            <param name="b">Ссылка на сравниваемый узел списка</param>
+            <returns>Результат сравнения</returns>
+        </member>
+        <member name="T:Simulation.SimList">
+            <summary>
+            Класс SimList - список узлов. Непосредственно сам объект является заголовочной ячейкой списка.
+            </summary>
+        </member>
+        <member name="M:Simulation.SimList.#ctor">
+            <summary>
+            Конструктор по умолчанию. 
+            Список создается с привязкой к моменту имитационного времени, соответствующему текущему процессу имитации.
+            Функция сравнения не задается.
+            </summary>
+        </member>
+        <member name="M:Simulation.SimList.#ctor(System.Double)">
+            <summary>
+            Конструктор по умолчанию. 
+            Список создается с привязкой к заданному моменту имитационного времени.
+            Функция сравнения не задается.
+            </summary>
+            <param name="simTime">Имитационное время, соответствующее созданию списка</param>
+        </member>
+        <member name="M:Simulation.SimList.#ctor(Simulation.CompareFunction)">
+            <summary>
+            Конструктор по умолчанию. 
+            Список создается с привязкой к моменту имитационного времени, соответствующему текущему процессу имитации.
+            Функция сравнения задается параметром.
+            </summary>
+            <param name="order">Делегат функции сравненияжж</param>
+        </member>
+        <member name="M:Simulation.SimList.#ctor(Simulation.CompareFunction,System.Double)">
+            <summary>
+            Конструктор по умолчанию. 
+            Список создается с привязкой к заданному моменту имитационного времени.
+            Функция сравнения задается параметром.
+            </summary>
+            <param name="order">Делегат функции сравненияжж</param>
+            <param name="simTime">Имитационное время, соответствующее созданию списка</param>
+        </member>
+        <member name="F:Simulation.SimList.CompFunc">
+            <summary>
+            Делегат функции сравнения, определяющий упорядоченность списка
+            </summary>
+        </member>
+        <member name="F:Simulation.SimList.TimeStat">
+            <summary>
+            Статистика по времени нахождения узлов в очереди
+            </summary>
+        </member>
+        <member name="F:Simulation.SimList.LengthStat">
+            <summary>
+            Статистика по длине списка
+            </summary>
+        </member>
+        <member name="M:Simulation.SimList.Clear">
+            <summary>
+            Очистка списка с завершением всех входящих в него узлов
+            </summary>
+        </member>
+        <member name="M:Simulation.SimList.ClearStat">
+            <summary>
+            Очистка статистик списка с привязкой к текущему имитационному времени
+            </summary>
+        </member>
+        <member name="M:Simulation.SimList.ClearStat(System.Double)">
+            <summary>
+            Очистка статистик списка с привязкой к заданному имитационному времени
+            </summary>
+            <param name="simTime">Имитационное время, когда выполняется очистка статистик</param>
+        </member>
+        <member name="M:Simulation.SimList.Finish">
+            <summary>
+            Удаление списка
+            </summary>
+        </member>
+        <member name="M:Simulation.SimList.Empty">
+            <summary>
+            Проверка списка на пустоту
+            </summary>
+            <returns>true, если список пуст. false, если в нем есть хотя бы один узел.</returns>
+        </member>
+        <member name="M:Simulation.SimList.StopStat">
+            <summary>
+            Коррекция статистик списка к текущему имитационному времени
+            </summary>
+        </member>
+        <member name="M:Simulation.SimList.StopStat(System.Double)">
+            <summary>
+            Коррекция статистик списка к заданному имитационному времени
+            </summary>
+            <param name="simTime">Имитационное время, к которому корректируется статистика</param>
+        </member>
+        <member name="P:Simulation.SimList.OrderFunc">
+            <summary>
+            Установка делегата функции сравнения. 
+            Возможна только для пустого списка, для которого эта функция еще не была задана.
+            Если любое из этих условий нарушается, не выполняется никаких действий.
+            </summary>
+        </member>
+        <member name="P:Simulation.SimList.First">
+            <summary>
+            Ссылка на первый узел списка.
+            </summary>
+        </member>
+        <member name="P:Simulation.SimList.Last">
+            <summary>
+            Ссылка на последний узел списка.
+            </summary>
+        </member>
+        <member name="P:Simulation.SimList.Size">
+            <summary>
+            Количество узлов списка
+            </summary>
+        </member>
+        <member name="T:Simulation.Statistics">
+            <summary>
+            Класс Statistics собирает точечную статистику по независимым значениям
+            </summary>
+        </member>
+        <member name="F:Simulation.Statistics.SumX">
+            <summary>
+            Сумма величин
+            </summary>
+        </member>
+        <member name="F:Simulation.Statistics.SumX_2">
+            <summary>
+            Сумма квадратов величин
+            </summary>
+        </member>
+        <member name="F:Simulation.Statistics.ValuesCount">
+            <summary>
+            Количество накопленных значений
+            </summary>
+        </member>
+        <member name="F:Simulation.Statistics.MinValue">
+            <summary>
+            Минимальное среди накопленных значений
+            </summary>
+        </member>
+        <member name="F:Simulation.Statistics.MaxValue">
+            <summary>
+            Максимальное среди накопленных значений
+            </summary>
+        </member>
+        <member name="M:Simulation.Statistics.AddData(System.Double)">
+            <summary>
+            Добавление нового значения к статистике
+            </summary>
+            <param name="newX">Добавляемое значение</param>
+        </member>
+        <member name="M:Simulation.Statistics.ClearStat">
+            <summary>
+            Очистка статистики, подготовка к новому сбору данных
+            </summary>
+        </member>
+        <member name="M:Simulation.Statistics.Mean">
+            <summary>
+            Возвращает среднее арифметическое по накопленным данным
+            </summary>
+            <returns>Среднее арифметическое</returns>
+        </member>
+        <member name="M:Simulation.Statistics.Disperse">
+            <summary>
+            Возвращает дисперсию накопленных значений
+            </summary>
+            <returns>Дисперсия</returns>
+        </member>
+        <member name="M:Simulation.Statistics.Deviation">
+            <summary>
+            Возвращает стандартное отклонение накопленных значений
+            </summary>
+            <returns>Стандартное отклонение</returns>
+        </member>
+        <member name="P:Simulation.Statistics.Min">
+            <summary>
+            Минимальное значение среди накопленных
+            </summary>
+        </member>
+        <member name="P:Simulation.Statistics.Max">
+            <summary>
+            Максимальное значение среди накопленных
+            </summary>
+        </member>
+        <member name="P:Simulation.Statistics.Count">
+            <summary>
+            Количество накопленных значений
+            </summary>
+        </member>
+        <member name="T:Simulation.TimeBetStatistics">
+            <summary>
+            Класс TimeBetStatistics - собирает точечную статистику по интевалам времени между событиями
+            </summary>
+        </member>
+        <member name="M:Simulation.TimeBetStatistics.#ctor">
+            <summary>
+            Конструктор по умолчанию.
+            </summary>
+        </member>
+        <member name="M:Simulation.TimeBetStatistics.AddData">
+            <summary>
+            Добавляет текущий момент имитационного времени, соответствующий текущей активной имитации
+            </summary>
+        </member>
+        <member name="M:Simulation.TimeBetStatistics.AddData(System.Double)">
+            <summary>
+            Добавляет новое значение как разность между значением параметра и последним добавленным значением
+            </summary>
+            <param name="newTime"></param>
+        </member>
+        <member name="M:Simulation.TimeBetStatistics.ClearStat">
+            <summary>
+            Приведение статистики в исходное состояние
+            </summary>
+        </member>
+        <member name="T:Simulation.IntervalStatistics">
+            <summary>
+            Класс IntervalStatistics собирает интервальную статистику по значениям, дисретно меняющимся во времени
+            </summary>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.#ctor(System.Double)">
+            <summary>
+            Конструктор. Создает объект интервальной статистики в текущий момент имитационного времени.
+            </summary>
+            <param name="initX">Начальное значение наблюдаемой величины</param>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.#ctor(System.Double,System.Double)">
+            <summary>
+            Конструктор. Создает объект интервальной статистики в заданный момент имитационного времени.
+            </summary>
+            <param name="initX">Начальное значение наблюдаемой величины</param>
+            <param name="initTime">Момент времени, когда создается объект</param>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.AddData(System.Double,System.Double)">
+            <summary>
+            Добавление нового значения наблюдаемой величины к статистике с указанием момента времени, когда оно изменяется.
+            Фактически учитывается статистика за промежуток времени с последнего изменения до текущего.
+            Указанное значение запоминается для учета в будущем.
+            </summary>
+            <param name="newX">Новое значение наблюдаемой величины</param>
+            <param name="newTime">Имитационное время в момент изменения</param>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.AddData(System.Double)">
+            <summary>
+            Добавление нового значения наблюдаемой величины к статистике в текущий момент имитационного времени.
+            Фактически учитывается статистика за промежуток времени с последнего изменения до текущего.
+            Указанное значение запоминается для учета в будущем.
+            </summary>
+            <param name="newX">Новое значение наблюдаемой величины</param>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.ClearStat">
+            <summary>
+            Очистка статистики, подготовка к новому сбору данных в текущий момент имитационного времени
+            </summary>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.ClearStat(System.Double)">
+            <summary>
+            Очистка статистики, подготовка к новому сбору данных в заданный момент имитационного времени
+            </summary>
+            <param name="newTime"></param>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.StopStat">
+            <summary>
+            Коррекция статистики к текущему имитационному времени.
+            Учитывается интервал времени, прошедший с момента последнего изменения или коррекции.
+            </summary>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.StopStat(System.Double)">
+            <summary>
+            Коррекция статистики к заданному имитационному времени.
+            Учитывается интервал времени, прошедший с момента последнего изменения или коррекции.
+            </summary>
+            <param name="newTime">Имитационное время момента коррекции статистики</param>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.Mean">
+            <summary>
+            Возвращает среднее арифметическое по накопленным данным
+            </summary>
+            <returns>Среднее арифметическое</returns>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.Disperse">
+            <summary>
+            Возвращает дисперсию накопленных значений
+            </summary>
+            <returns>Дисперсия</returns>
+        </member>
+        <member name="M:Simulation.IntervalStatistics.Deviation">
+            <summary>
+            Возвращает стандартное отклонение накопленных значений
+            </summary>
+            <returns>Стандартное отклонение</returns>
+        </member>
+        <member name="P:Simulation.IntervalStatistics.Min">
+            <summary>
+            Минимальное значение среди накопленных
+            </summary>
+        </member>
+        <member name="P:Simulation.IntervalStatistics.Max">
+            <summary>
+            Максимальное значение среди накопленных
+            </summary>
+        </member>
+        <member name="P:Simulation.IntervalStatistics.TotalTime">
+            <summary>
+            Общее время наблюдения со сбором статистики
+            </summary>
+        </member>
+        <member name="T:Simulation.SimRandom">
+            <summary>
+            Класс SimRandom предоставляет генератор случайных чисел с возможностью получения последовательностей с различным распределением
+            </summary>
+        </member>
+        <member name="M:Simulation.SimRandom.#ctor">
+            <summary>
+            Конструктор. Инициализирует объект автоматически в зависимости от текущего системного времени
+            </summary>
+        </member>
+        <member name="M:Simulation.SimRandom.#ctor(System.Int32)">
+            <summary>
+            Конструктор. Инициализирует объект заданным начальным значением
+            </summary>
+            <param name="seed">Исходное значение</param>
+        </member>
+        <member name="M:Simulation.SimRandom.NextFloat">
+            <summary>
+            Возвращает очередное псевдослучайное вещественное значение
+            </summary>
+            <returns>Равномерно распределенное вещественное значение в интервале [0, 1)</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.NextInt">
+            <summary>
+            Возвращает очередное псеводслучайное целочисленное значение 
+            </summary>
+            <returns>Равномерно распределенное целочисленное значение в интервале от 0 до 2^31 - 1</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.NextInt(System.Int32)">
+            <summary>
+            Возвращает очередное псеводслучайное целочисленное значение,
+            ограниченное сверху
+            </summary>
+            <param name="max">Верхняя граница псевдослучайного значения</param>
+            <returns>Расномерно распределенное целочисленное значение в интервале от 0 до max - 1</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.NextInt(System.Int32,System.Int32)">
+            <summary>
+            Возвращает очередное псеводслучайное целочисленное значение,
+            ограниченное с двух сторон
+            </summary>
+            <param name="min">Нижняя граница псевдослучайного значения</param>
+            <param name="max">Верхняя граница псеводслучайного значения</param>
+            <returns>Расномерно распределенное целочисленное значение в интервале от min до max - 1</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.Draw(System.Double)">
+            <summary>
+            Возвращает true с заданной вероятностью
+            </summary>
+            <param name="prob">Вероятность появления результата true</param>
+            <returns>Логическое значение, равное true с вероятностью prob, и false с вероятностью 1 - prob</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.Uniform(System.Double,System.Double)">
+            <summary>
+            Возвращает очередное равномерно распределенное псеводслучайное вещественное значение
+            </summary>
+            <param name="min">Нижняя граница</param>
+            <param name="max">Верхняя граница</param>
+            <returns>Значение в диапазоне [min, max)</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.TableIndex(System.Double[])">
+            <summary>
+            Возвращает целочисленное значение, распределенное с вероятностями для каждого возможного значения, задаваемыми в массиве.
+            Параметр-массив должен быть упорядочен по возрастанию.
+            Например, если массив содержит значения (0.2, 0.6, 0.7, 0.9), то вероятности появления результатов будут следующими:
+            0 - 0,2, 1 - 0,4, 2 - 0,1, 3 - 0,2, 4 - 0,1.
+            </summary>
+            <param name="table">Массив вероятностей</param>
+            <returns>Целочисленное значение в интервале от 0 до table.Length</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.Normal(System.Double,System.Double)">
+            <summary>
+            Возвращает нормально распределенное вещественное значение с заданными
+            значениями математического ожидания и стандартного отклонения
+            </summary>
+            <param name="mean">Математическое ожидание</param>
+            <param name="deviation">Стандартное отклонение</param>
+            <returns>Нормально распределенное вещественное значение</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.Exponential(System.Double)">
+            <summary>
+            Возвращает экспоненциально распределенную вещественную величину
+            с заданным математическим ожиданием
+            </summary>
+            <param name="mean">Математическое ожидание (для данного распределения оно равно стандартному отклонению)</param>
+            <returns>Экспоненциально распределенная величина</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.Erlang(System.Double,System.Int32)">
+            <summary>
+            Возвращает вещественную величину, распределенную в соответствии с законом Эрланга.
+            Она равна сумме count величин, распределенных экспоненциально с математическим ожиданием mean каждая.
+            </summary>
+            <param name="mean">Математическое ожидание отдельного слагаемого</param>
+            <param name="count">Количество слагаемых</param>
+            <returns>Величина, распределенная в соответствии с законом Эрланга</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.Poisson(System.Double)">
+            <summary>
+            Возвращает целочисленное значение, распределенное в соответствии с законом Пуассона
+            </summary>
+            <param name="mean">Математическое ожидание</param>
+            <returns>Целочисленное значение, распределенно в соответствии с законом Пуассона</returns>
+        </member>
+        <member name="M:Simulation.SimRandom.Triangular(System.Double,System.Double,System.Double)">
+            <summary>
+            Возвращает вещественную величину, распределенную треугольно
+            </summary>
+            <param name="min">Нижняя граница</param>
+            <param name="moda">Мода, то есть значение, для которого плотность вероятности распределения максимальна</param>
+            <param name="max">Верхняя граница</param>
+            <returns>Треугольно распределенная величина</returns>
+        </member>
+    </members>
+</doc>

@@ -1,0 +1,13 @@
+program QuarryVisual;
+
+uses
+  Forms,
+  UQuarryVis in 'UQuarryVis.pas' {frQuarryVis};
+
+{$R *.res}
+
+begin
+  Application.Initialize;
+  Application.CreateForm(TfrQuarryVis, frQuarryVis);
+  Application.Run;
+end.

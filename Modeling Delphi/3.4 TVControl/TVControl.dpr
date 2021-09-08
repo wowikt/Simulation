@@ -1,0 +1,45 @@
+program TVControl;
+
+{$APPTYPE CONSOLE}
+
+uses
+  SysUtils,
+  UTVControl in 'UTVControl.pas',
+  USimulation in '..\USimulation\USimulation.pas';
+
+var
+  tvc : TTVControl;
+
+// Модель поточной линии по контролю телевизоров
+begin
+  { TODO -oUser -cConsole Main : Insert code here }
+  rndTVSet := TRandom.Create;
+  rndInspector := TRandom.Create;
+  rndAdjuster := TRandom.Create;
+  // Создание модели и прогон
+  tvc := TTVControl.Create;
+  SwitchTo(tvc);
+  with tvc do
+  begin
+    // Вывод статистики:
+    // Время нахождения телевизоров в системе
+    WriteStat('Time in system:', TimeInSystemStat);
+    WriteLn;
+    // Занятость проверяющих
+    WriteStat('Inspectors:', InspectorsStat);
+    WriteLn;
+    // Занятость настройщика
+    WriteStat('Adjustment:', AdjustmentStat);
+    WriteLn;
+    // Очередь проверки
+    WriteStat('Inspection queue:', InspectionQueue);
+    WriteLn;
+    // Очередь настройки
+    WriteStat('Adjustment queue:', AdjustmentQueue);
+    WriteLn;
+    // Очередь событий
+    WriteStat('Calendar:', Calendar);
+  end;
+  tvc.Free;
+  ReadLn;
+end.

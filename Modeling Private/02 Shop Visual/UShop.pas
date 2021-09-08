@@ -1,0 +1,240 @@
+unit UShop;
+
+interface
+uses USimulation;
+
+// Моделирование работы магазина
+
+type
+  // Класс TCustomer - покупатель
+  TCustomer = class(TProcess)
+  public
+    // Количество покупок
+    BuysCount : Integer;
+  protected
+    procedure RunProcess; override;
+  end;
+
+  // Класс TCashman - кассир
+  TCashman = class(TProcess)
+  protected
+    procedure RunProcess; override;
+  end;
+
+  // Класс TGenerator - генератор покупателей
+  TGenerator = class(TProcess)
+  protected
+    procedure RunProcess; override;
+  end;
+
+  // Класс TShop - имитация работы магазина
+  TShop = class(TSimulation)
+  public
+    Queue : TList;
+    Generator : TGenerator;
+    Cash : array of TProcess;
+    CashStat : TServiceStatistics;
+    TimeStat : TStatistics;
+    // Статистика по нахождению покупателей в торговом зале
+    PeopleStat : TActionStatistics;
+    TotalBuys : Integer;
+    CanceledCust : Integer;
+    CanceledBuys : Integer;
+    destructor Destroy; override;
+    procedure StopStat; override;
+  protected
+    procedure Init; override;
+    procedure RunSimulation; override;
+  end;
+
+var
+  // Генераторы случайных чисел
+  rndCust,                 // Прибытие покупателей
+  rndService : TRandom;    // Время обслуживания
+  // Границы времени выбора покупок
+  MinShoppingTime : Double = 2;
+  MaxShoppingTime : Double = 12;
+  // Границы повторного прохода по торговому залу
+  MinSecondShoppingTime : Double = 2;
+  MaxSecondShoppingTime : Double = 6;
+  // Граничные значения числа покупок
+  MinBuysCount : Integer = 2;
+  MaxBuysCount : Integer = 16;
+  // Максимальное значение повторного числа покупок
+  MaxSecondBuysCount : Integer = 3;
+  // Средний интервал прибылтия покупателей
+  MeanCustInterval : Double = 1.3;
+  // Среднее время обработки одной покупки
+  TimePerBuy : Double = 0.4;
+  // Полное время моделирования
+  SimulationTime : Double = 480;
+  // Количество касс
+  CashCount : Integer = 3;
+  VisTimeStep : Double = 0.5;
+  // Вероятность отказа
+  CancelProb : Double = 0.2;
+  // Вероятность дополнительной покупки
+  ExtraBuyProb : Double = 0.3;
+  // Среднее время обслудивания дополнительной покупки
+  ExtraBuyTime : Double = 0.5;
+
+implementation
+
+{ TCustomer }
+
+procedure TCustomer.RunProcess;
+var
+  par : TShop;
+begin
+  par := Parent as TShop;
+  StartRunning;
+  // Задать число покупок
+  BuysCount := rndService.NextInt(MinBuysCount, MaxBuysCount);
+  // Выбор покупок
+
+  par.PeopleStat.Start(SimTime);
+  Hold(rndService.Uniform(MinShoppingTime, MaxShoppingTime));
+  // Если очередь имеет максимальный размер
+  while par.Queue.Size = 10 do
+    // Либо отказ от покупки
+    if rndCust.Draw(CancelProb) then
+    begin
+      Inc(par.CanceledCust);
+      Inc(par.CanceledBuys, BuysCount);
+      par.PeopleStat.Finish(SimTime);
+      Finish;
+      Exit;
+    end
+    // Либо повторный проход по торговому залу
+    else
+    begin
+      Hold(rndService.Uniform(MinSecondShoppingTime, MaxSecondShoppingTime));
+      Inc(BuysCount, rndCust.NextInt(MaxSecondBuysCount));
+    end;
+  par.PeopleStat.Finish(SimTime);
+  // Активировать кассиров
+  ActivateDelay(par.Cash, 0);
+  // Встать в очередь к кассе
+  Wait(par.Queue);
+  // По окончании обслуживания завершить работу
+  Finish;
+end;
+
+{ TCashman }
+
+procedure TCashman.RunProcess;
+var
+  Cust : TCustomer;
+  par : TShop;
+begin
+  par := Parent as TShop;
+  while True do
+  begin
+    while not par.Queue.Empty do
+    begin
+      // Обратиться к очередному покупателю
+      Cust := par.Queue.First as TCustomer;
+      // Извлечь из очереди
+      Cust.StartRunning;
+      // Кассир занят
+      par.CashStat.Start(SimTime);
+      // Рассчитать покупателя
+      Hold(rndService.Erlang(TimePerBuy, Cust.BuysCount));
+      Inc(par.TotalBuys, Cust.BuysCount);
+      // Если совершается дополнительная покупка
+      if rndCust.Draw(ExtraBuyProb) then
+      begin
+        Hold(rndService.Exponential(ExtraBuyTime));
+        Inc(par.TotalBuys);
+      end;
+      // Покупатель обслужен - кассир свободен
+      par.CashStat.Finish(SimTime);
+      par.TimeStat.AddData(SimTime - Cust.StartingTime);
+      // Активировать его завершение
+      Cust.ActivateDelay(0);
+    end;
+    if (SimTime >= SimulationTime) and (par.PeopleStat.Running = 0) and
+        (par.CashStat.Running = 0) then
+      par.ActivateDelay(0);
+    // Ждать очередного покупателя
+    Passivate;
+  end;
+end;
+
+{ TGenerator }
+
+procedure TGenerator.RunProcess;
+var
+  StartCust, i : Integer;
+  par : TShop;
+begin
+  par := Parent as TShop;
+  StartCust := rndCust.Poisson(3);
+  for i := 1 to StartCust - 1 do
+    TCustomer.Create.ActivateDelay(0);
+  while SimTime < SimulationTime do
+  begin
+    ClearFinished;
+    // Создать нового покупателя и поместить его в систему
+    TCustomer.Create.ActivateDelay(0);
+    // Подождать перед созданием следующего
+    Hold(rndCust.Exponential(MeanCustInterval));
+  end;
+  if par.Queue.Empty and (par.PeopleStat.Running = 0) and
+      (par.CashStat.Running = 0) then
+    par.ActivateDelay(0);
+end;
+
+{ TShop }
+
+destructor TShop.Destroy;
+var i : Integer;
+begin
+  for i := 0 to CashCount - 1 do
+    Cash[i].Free;
+  Generator.Free;
+  CashStat.Free;
+  TimeStat.Free;
+  PeopleStat.Free;
+  Queue.Free;
+  inherited;
+end;
+
+procedure TShop.Init;
+var
+  i : Integer;
+begin
+  inherited;
+  CashStat := TServiceStatistics.Create(CashCount);
+  PeopleStat := TActionStatistics.Create;
+  Queue := TList.Create;
+  SetLength(Cash, CashCount);
+  for i := 0 to CashCount - 1 do
+    Cash[i] := TCashman.Create;
+  Generator := TGenerator.Create;
+  TimeStat := TStatistics.Create;
+  MakeVisualizator(VisTimeStep);
+  CanceledCust := 0;
+  CanceledBuys := 0;
+  TotalBuys := 0;
+end;
+
+procedure TShop.RunSimulation;
+begin
+  // Запустить генератор
+  Generator.ActivateDelay(0);
+  // Ждать окончания моделирования
+  Passivate;
+  // Закончить статистику
+  StopStat;
+end;
+
+procedure TShop.StopStat;
+begin
+  inherited;
+  CashStat.StopStat(SimTime);
+  Queue.StopStat(SimTime);
+  PeopleStat.StopStat(SimTime);
+end;
+
+end.

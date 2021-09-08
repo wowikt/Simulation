@@ -1,0 +1,15 @@
+program TrafficVisual;
+
+uses
+  Forms,
+  UTrafficVisual in 'UTrafficVisual.pas' {Form1},
+  UTraffic in 'UTraffic.pas',
+  USimulation in '..\USimulation\USimulation.pas';
+
+{$R *.res}
+
+begin
+  Application.Initialize;
+  Application.CreateForm(TForm1, Form1);
+  Application.Run;
+end.

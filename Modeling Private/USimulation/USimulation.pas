@@ -1,0 +1,5208 @@
+unit USimulation;
+
+interface
+
+uses
+  Classes, SysUtils, Grids, Types;
+
+const
+  LocalStackSize = 65536;
+
+type
+  // Предварительные объявления
+  TLink = class;
+  TList = class;
+  TStatistics = class;
+  TIntervalStatistics = class;
+  TProcess = class;
+  TSimulation = class;
+  TResource = class;
+  TGate = class;
+  TEventHandler = class;
+  TCompareFunc = function(A, B : TLink) : Boolean;
+  TGetResourceFunc = function : Boolean of object;
+  TEventProc = procedure of object;
+
+  ESimulationException = class(Exception)
+  end;
+
+  // Класс TLinkage - базовый класс ячейки связного списка, общая основа
+  //   для большинства классов моделирования
+  TLinkage = class
+  protected
+    FPrev, FNext : TLinkage;
+    FHeader : TList;
+  public
+    constructor Create;
+    function Next : TLink;
+    function Prev : TLink;
+  end;
+
+  // Класс TLink = внутренняя ячейка связного списка
+  TLink = class(TLinkage)
+  private
+    InsertTime : Double;
+  protected
+    function GetHeader : TList; 
+  public
+    destructor Destroy; override;
+    // Исключение ячейки из списка
+    procedure Remove;
+    // Проверка, является ли ячейка первой или последней в списке
+    function IsFirst : Boolean;
+    function IsLast : Boolean;
+    // Вставка ячейки в список: до и после указанной ячейки, и в конец списка
+    procedure InsertBefore(L : TLinkage); virtual;
+    procedure InsertAfter(L : TLinkage);
+    procedure InsertLast(L : TList);
+    procedure InsertFirst(L : TList);
+    procedure Insert(L : TList); overload;
+    procedure Insert(L : TList; Order : TcompareFunc); overload;
+  end;
+
+  // Класс TList - заголовочная ячейка списка
+  TList = class(TLinkage)
+  private
+    OrderFunc : TCompareFunc;
+    FSize : Integer;
+    procedure SetOrderFunc(NewOrderFunc : TCompareFunc);
+  public
+    LengthStat : TIntervalStatistics;
+    WaitStat : TStatistics;
+    constructor Create; overload;
+    constructor Create(SimTime : Double); overload;
+    constructor Create(Order : TCompareFunc); overload;
+    constructor Create(Order : TCompareFunc; SimTime : Double); overload;
+    destructor Destroy; override;
+    function First : TLink;
+    function Last : TLink;
+    function Empty : Boolean;
+    function Size : Integer;
+    procedure Clear;
+    procedure StopStat; overload;
+    procedure StopStat(NewTime : Double); overload;
+    procedure ClearStat; overload;
+    procedure ClearStat(NewTime : Double); overload;
+    property Order : TCompareFunc write SetOrderFunc;
+  end;
+
+  // Класс TRunningObject - абстрактный базовый класс
+  //   для организации объектов-сопрограмм.
+  //   Переключение сопрограмм производится глобальными
+  //   процедурами SwitchTo и Detach
+  //   В производном классе обязательно переопределение
+  //   абстрактного метода Execute. Его структура должна быть примерно следующей:
+  //   1. Создание внутренних объектов, установка начального состояния.
+  //   2. Detach;
+  //   3. Рабочий цикл процесса.
+  //   4. Detach;
+  TLocalStack = array [0 .. LocalStackSize - 1] of Byte;
+  TRunningObject = class(TLink)
+  private
+    // Сохраненный указатель стека
+    SavedSP : Cardinal;
+    // Признак завершения
+    FTerminated : Boolean;
+    // Локальный стек (контекст)
+    LocalStack : ^TLocalStack;  
+    procedure Run;
+  protected
+    // Владелец - сопрограмма, в контексте которой создана данная
+    Owner : TRunningObject;
+    procedure Execute; virtual; abstract;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property Terminated : Boolean read FTerminated;
+  end;
+
+  // Класс TEventNotice - базовый класс ячейки списка событий
+  TBaseEventNotice = class(TLink)
+  private
+    // Время события
+    EventTime : Double;
+    procedure InsertPrior(l : TList);
+    procedure SetTime(NewTime : Double);
+    procedure SetTimePrior(NewTime : Double);
+  public
+    procedure InsertBefore(l : TLinkage); override;
+  end;
+
+  // Класс TProcessEventNotice - ячейка события, связанного с процессом
+  TProcessEventNotice = class(TBaseEventNotice)
+  private
+    // Процесс, возобновляемый при наступлении события
+    Proc : TProcess;
+    constructor Create(ETime : Double; AProc : TProcess);
+  public
+    destructor Destroy; override;
+  end;
+
+  // Класс TProcedureEventNotice  - ячейка события, связанного с процедурой
+  TProcedureEventNotice = class(TBaseEventNotice)
+  private
+    // Процедура обработки события
+    EventProc : TEventProc;
+    constructor Create(ETime : Double; AEProc : TEventProc);
+  end;
+
+  // Класс THandlerEventNotice - ячейка события,
+  //   связанного с объектом-обработчиком
+  THandlerEventNotice = class(TBaseEventNotice)
+  private
+    // ОБъект-обработчик события
+    Handler : TEventHandler;
+    constructor Create(ETime : Double; AHand : TEventHandler);
+  public
+    destructor Destroy; override;
+  end;
+
+  // Класс TEventHandler - класс-обработчик событий
+  TEventHandler = class(TLink)
+  private
+    // Процедура обработки ближайшего события
+    EventProc : TEventProc;
+    // Ячейка календаря событий
+    Event : THandlerEventNotice;
+  protected
+    // Родительская имитация
+    Parent : TSimulation;
+    function SimTime : Double;
+    procedure StartRunning;
+    procedure Finish;
+    procedure ClearFinished;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    // Исходная процедура обработки события
+    procedure DefaultEventProc; virtual;
+    function Idle : Boolean;
+    function EventTime : Double;
+    function NextEvent : TBaseEventNotice;
+    procedure Wait(l : TList); overload;
+    procedure Wait(l : TList; Proc : TEventProc); overload;
+    procedure Activate; overload;
+    procedure Activate(Proc : TEventProc); overload;
+    procedure ActivateAt(t : Double); overload;
+    procedure ActivateAt(t : Double; Proc : TEventProc); overload;
+    procedure ActivatePriorAt(t : Double); overload;
+    procedure ActivatePriorAt(t : Double; Proc : TEventProc); overload;
+    procedure ActivateDelay(t : Double); overload;
+    procedure ActivateDelay(t : Double; Proc : TEventProc); overload;
+    procedure ActivatePriorDelay(t : Double); overload;
+    procedure ActivatePriorDelay(t : Double; Proc : TEventProc); overload;
+    procedure ActivateAfter(l : TLink); overload;
+    procedure ActivateAfter(l : TLink; Proc : TEventProc); overload;
+    procedure ActivateBefore(l : TLink); overload;
+    procedure ActivateBefore(l : TLink; Proc : TEventProc); overload;
+    procedure Reactivate; overload;
+    procedure Reactivate(Proc : TEventProc); overload;
+    procedure ReactivateAt(t : Double); overload;
+    procedure ReactivateAt(t : Double; Proc : TEventProc); overload;
+    procedure ReactivatePriorAt(t : Double); overload;
+    procedure ReactivatePriorAt(t : Double; Proc : TEventProc); overload;
+    procedure ReactivateDelay(t : Double); overload;
+    procedure ReactivateDelay(t : Double; Proc : TEventProc); overload;
+    procedure ReactivatePriorDelay(t : Double); overload;
+    procedure ReactivatePriorDelay(t : Double; Proc : TEventProc); overload;
+    procedure ReactivateAfter(l : TLink); overload;
+    procedure ReactivateAfter(l : TLink; Proc : TEventProc); overload;
+    procedure ReactivateBefore(l : TLink); overload;
+    procedure ReactivateBefore(l : TLink; Proc : TEventProc); overload;
+    procedure Suspend;
+    procedure GetResource(Res : TResource; Count, Index : Integer);
+    procedure PreemptResource(Res : TResource; Index : Integer);
+    procedure WaitGate(Gate : TGate; Index : Integer);
+  end;
+
+  // Класс TProcess - абстрактный класс, моделирующий процесс
+  //   При создании производного класса следует обязательно переопределить
+  //   метод RunProcess
+  TProcess = class(TRunningObject)
+  private
+    // Ячейка календаря событий
+    Event : TProcessEventNotice;
+    procedure RunNextProc;
+  protected
+    // Родительская имитация
+    Parent : TSimulation;
+    procedure Init; virtual;
+    procedure Execute; override;
+    procedure RunProcess; virtual; abstract;
+    function SimTime : Double; virtual;
+    procedure StartRunning;
+    procedure Finish;
+    procedure ClearFinished;
+  public
+    // Время запуска процесса.
+    //   По умолчанию задается непосредственно перед началом
+    //   исполнения метода RunProcess
+    StartingTime : Double;
+    // Время, оставшееся до завершения действия.
+    //   Используется только при перехвате ресурсов
+    TimeLeft : Double;
+    constructor Create;
+    destructor Destroy; override;
+    function Idle : Boolean;
+    function EventTime : Double;
+    function NextEvent : TBaseEventNotice;
+    procedure Passivate;
+    procedure Hold(t : Double);
+    procedure Wait(l : TList);
+    procedure Activate;
+    procedure ActivateAt(t : Double);
+    procedure ActivatePriorAt(t : Double);
+    procedure ActivateDelay(t : Double);
+    procedure ActivatePriorDelay(t : Double);
+    procedure ActivateAfter(l : TLink);
+    procedure ActivateBefore(l : TLink);
+    procedure Reactivate;
+    procedure ReactivateAt(t : Double);
+    procedure ReactivatePriorAt(t : Double);
+    procedure ReactivateDelay(t : Double);
+    procedure ReactivatePriorDelay(t : Double);
+    procedure ReactivateAfter(l : TLink);
+    procedure ReactivateBefore(l : TLink);
+    procedure GetResource(Res : TResource; Count, Index : Integer); overload;
+    procedure GetResource(Res : TResource; Count : Integer); overload;
+    procedure GetResource(Res : TResource); overload;
+    procedure GetResource(Res : TResource; GetRes : TGetResourceFunc;
+        Index : Integer); overload;
+    procedure GetResource(Res : TResource; GetRes : TGetResourceFunc); overload;
+    procedure PreemptResource(Res : TResource; Index : Integer); overload;
+    procedure PreemptResource(Res : TResource); overload;
+    procedure PreemptResourceNoWait(Res : TResource; Index : Integer); overload;
+    procedure PreemptResourceNoWait(Res : TResource); overload;
+    procedure WaitGate(Gate : TGate);
+  end;
+
+  TVisualizator = class(TProcess)
+  public
+    DeltaT : Double;
+    constructor Create(dt : Double);
+  protected
+    procedure RunProcess; override;
+  end;
+
+  // Класс TSimulation - абстрактный класс, моделирующий имитацию
+  //   При создании производного класса обязательно переопределить метод
+  //   RunSimulation
+  TSimulation = class(TProcess)
+  private
+    FSimTime : Double;
+    FLastCleared : Double;
+  public
+    Visualizator : TVisualizator;
+    Calendar : TList;
+    constructor Create;
+    destructor Destroy; override;
+    function SimTime : Double; override;
+    procedure StopStat; virtual;
+    procedure ClearStat; virtual;
+    property LastCleared : Double read FLastCleared;
+  protected
+    RunningObjects : TList;
+    FinishedObjects : TList;
+    procedure Execute; override;
+    procedure RunSimulation; virtual; abstract;
+    procedure Init; override;
+    procedure Finalize; virtual;
+    procedure MakeVisualizator(dt : Double);
+  end;
+
+  // Класс TStatistics используется для сбора точечной статистики
+  TStatistics = class
+  private
+    SumX : Double;
+    SumX_2 : Double;
+    FMin : Double;
+    FMax : Double;
+    FCount : Integer;
+  public
+    constructor Create;
+    procedure AddData(NewX : Double);
+    procedure Clear;
+    function Mean : Double;
+    function Deviation : Double;
+    function Disperse : Double;
+    property Min : Double read FMin;
+    property Max : Double read FMax;
+    property Count : Integer read FCount;
+  end;
+
+  // Класс TTimeBetStatistics используется для сбора
+  //   точечной статистики по интервалам времени между событиями
+  TTimeBetStatistics = class
+  private
+    SumX : Double;
+    SumX_2 : Double;
+    FMin : Double;
+    FMax : Double;
+    LastTime : Double;
+    FCount : Integer;
+  public
+    constructor Create;
+    procedure AddData; overload;
+    procedure AddData(NewTime : Double); overload;
+    procedure Clear;
+    function Mean : Double;
+    function Deviation : Double;
+    function Disperse : Double;
+    property Min : Double read FMin;
+    property Max : Double read FMax;
+    property Count : Integer read FCount;
+  end;
+
+  // Класс TIntervalStatistic используется для сбора
+  //   интервальной (временнОй) статистики
+  TIntervalStatistics = class
+  private
+    SumX : Double;
+    SumX_2 : Double;
+    LastTime : Double;
+    LastX : Double;
+    FMin : Double;
+    FMax : Double;
+    FTotalTime : Double;
+  public
+    constructor Create(InitX, InitTime : Double); overload;
+    constructor Create(InitX : Double); overload;
+    procedure AddData(NewX, NewTime : Double); overload;
+    procedure AddData(NewX : Double); overload;
+    procedure StopStat(NewTime : Double); overload;
+    procedure StopStat; overload;
+    procedure Clear(NewTime : Double); overload;
+    procedure Clear; overload;
+    function Mean : Double;
+    function Deviation : Double;
+    function Disperse : Double;
+    property Min : Double read FMin;
+    property Max : Double read FMax;
+    property Current : Double read LastX;
+    property TotalTime : Double read FTotalTime;
+  end;
+
+  // Класс TActionStatistic используется для сбора
+  //   статистики по действиям
+  TActionStatistics = class
+  private
+    SumX : Double;
+    SumX_2 : Double;
+    LastTime : Double;
+    LastX : Integer;
+    FMax : Integer;
+    FFinished : Integer;
+    FTotalTime : Double;
+  public
+    constructor Create(InitX : Integer; InitTime : Double); overload;
+    constructor Create(InitX : Integer); overload;
+    constructor Create; overload;
+    procedure Start(NewTime : Double); overload;
+    procedure Start; overload;
+    procedure Finish(NewTime : Double); overload;
+    procedure Finish; overload;
+    procedure StopStat(NewTime : Double); overload;
+    procedure StopStat; overload;
+    procedure Clear(NewTime : Double); overload;
+    procedure Clear; overload;
+    function Mean : Double;
+    function Deviation : Double;
+    function Disperse : Double;
+    property Max : Integer read FMax;
+    property Finished : Integer read FFinished;
+    property Running : Integer read LastX;
+    property TotalTime : Double read FTotalTime;
+  end;
+
+  // Класс TServiceStatistic используется для сбора
+  //   статистики по обслуживающим действиям
+  TServiceStatistics = class
+  private
+    SumX : Double;
+    SumX_2 : Double;
+    LastTime : Double;
+    LastUtil : Integer;
+    SumBlockage : Double;
+    LastBlockage : Integer;
+    LastBlockTime : Double;
+    FMaxBusy : Integer;
+    FMinBusy : Integer;
+    FFinished : Integer;
+    LastIdleStart : Double;
+    LastIdleTime : Double;
+    LastBusyStart : Double;
+    LastBusyTime : Double;
+    FMaxIdleTime : Double;
+    FMaxBusyTime : Double;
+    DeviceCount : Integer;
+    FTotalTime : Double;
+  public
+    constructor Create(Devices, InitUtil : Integer;
+        InitTime : Double); overload;
+    constructor Create(Devices : Integer); overload;
+    procedure Start(NewTime : Double); overload;
+    procedure Start; overload;
+    procedure Finish(NewTime : Double); overload;
+    procedure Finish; overload;
+    procedure StartBlock(NewTime : Double); overload;
+    procedure StartBlock; overload;
+    procedure FinishBlock(NewTime : Double); overload;
+    procedure FinishBlock; overload;
+    procedure StopStat(NewTime : Double); overload;
+    procedure StopStat; overload;
+    procedure Clear(NewTime : Double); overload;
+    procedure Clear; overload;
+    function Mean : Double;
+    function MeanBlockage : Double;
+    function Deviation : Double;
+    function Disperse : Double;
+    property MaxBusy : Integer read FMaxBusy;
+    property MinBusy : Integer read FMinBusy;
+    property Finished : Integer read FFinished;
+    property Running : Integer read LastUtil;
+    property MaxIdleTime : Double read FMaxIdleTime;
+    property MaxBusyTime : Double read FMaxBusyTime;
+    property Devices : Integer read DeviceCount;
+    property TotalTime : Double read FTotalTime;
+    property Blocked : Integer read LastBlockage; 
+  end;
+
+  // Класс TRandom для получения последовательностей случайных значений
+  TRandom = class
+  private
+    FSeed : Integer;
+    HasNextNormal : Boolean;
+    NextNormal : Double;
+  public
+    constructor Create; overload;
+    constructor Create(Seed : Integer); overload;
+    function Draw(A : Double) : Boolean;
+    function NextInt : Integer; overload;
+    function NextInt(High : Integer) : Integer; overload;
+    function NextInt(Low, High : Integer) : Integer; overload;
+    function NextFloat : Double;
+    function Uniform(A, B : Double) : Double;
+    function TableIndex(Table : array of Double) : Integer;
+    function Normal(Mean, Sigma : Double) : Double;
+    function PSNorm(Mean, Sigma : Double; Count : Integer) : Double;
+    function Triangular(A, Moda, B : Double) : Double;
+    function LogNormal(Mean, Sigma : Double) : Double;
+    function Exponential(Mean : Double) : Double;
+    function Poisson(Lambda : Double) : Integer;
+    function NegExp(Mean : Double) : Double;
+    function Erlang(Mean : Double; K : Integer) : Double;
+    function Gamma(Beta, Alpha : Double) : Double;
+    function Beta(Alpha, Betta : Double) : Double; overload;
+    function Beta(Min, Mean, Max, Sigma : Double) : Double; overload;
+    function Weibull(Beta, Alpha : Double) : Double;
+  end;
+
+  // Класс THistogram для накопления распределения значений
+  //   по диапазонам
+  THistogram = class
+  protected
+    FTotalCount : Integer;
+    function GetCount(i : Integer) : Integer; virtual; abstract;
+    function GetCumulativeCount(i : Integer) : Integer; virtual; abstract;
+    function GetPercent(i : Integer) : Double; virtual; abstract;
+    function GetCumulativePercent(i : Integer) : Double; virtual; abstract;
+    function GetLowerBound(i : Integer) : Double; virtual; abstract;
+    function GetUpperBound(i : Integer) : Double; virtual; abstract;
+    function GetIntervalCount : Integer; virtual; abstract;
+    procedure SetLowerBound(i : Integer; Value : Double); virtual; abstract;
+    procedure SetUpperBound(i : Integer; Value : Double); virtual; abstract;
+    procedure SetIntervalCount(NewCount : Integer); virtual; abstract;
+  public
+    constructor Create;
+    procedure Clear; virtual; abstract;
+    procedure AddData(d : Double); virtual; abstract;
+    property Count[i : Integer] : Integer read GetCount;
+    property Percent[i : Integer] : Double read GetPercent;
+    property CumulativeCount[i : Integer] : Integer read GetCumulativeCount;
+    property CumulativePercent[i : Integer] : Double read GetCumulativePercent;
+    property LowerBound[i : Integer] : Double read GetLowerBound
+        write SetLowerBound;
+    property UpperBound[i : Integer] : Double read GetUpperBound
+        write SetUpperBound;
+    property IntervalCount : Integer read GetIntervalCount
+        write SetIntervalCount;
+    property TotalCount : Integer read FTotalCount;
+  end;
+
+  // Класс TUniformHistogram для накопления распределения значений
+  //   по диапазонам равной длины
+  TUniformHistogram = class(THistogram)
+  private
+    FLow : Double;        // Нижняя граница первого конечного интервала
+    FStep : Double;       // Ширина каждого интервала
+    FIntervalCount : Integer;  // Количество конечных интервалов
+    Data : array of Integer;   // Массив счетчиков данных
+  protected
+    function GetCount(i : Integer) : Integer; override;
+    function GetPercent(i : Integer) : Double; override;
+    function GetCumulativeCount(i : Integer) : Integer; override;
+    function GetCumulativePercent(i : Integer) : Double; override;
+    function GetLowerBound(i : Integer) : Double; override;
+    function GetUpperBound(i : Integer) : Double; override;
+    function GetIntervalCount : Integer; override;
+    procedure SetLowerBound(i : Integer; Value : Double); override;
+    procedure SetUpperBound(i : Integer; Value : Double); override;
+    procedure SetIntervalCount(NewCount : Integer); override;
+  public
+    constructor Create(ALow, AStep : Double; AIntervalCount : Integer);
+    procedure Clear; override;
+    procedure AddData(d : Double); override;
+  end;
+
+  // Класс TArrayHistogram для накопления распределения значений
+  //   по диапазонам, заданным массивом граничных значений
+  TArrayHistogram = class(THistogram)
+  private
+    FIntervalCount : Integer;  // Количество конечных интервалов
+    Data : array of Integer;   // Массив счетчиков данных
+    Bounds : array of Double;  // Массив граничных значений
+    function IntervalIndex(Value : Double) : Integer;
+  protected
+    function GetCount(i : Integer) : Integer; override;
+    function GetPercent(i : Integer) : Double; override;
+    function GetCumulativeCount(i : Integer) : Integer; override;
+    function GetCumulativePercent(i : Integer) : Double; override;
+    function GetLowerBound(i : Integer) : Double; override;
+    function GetUpperBound(i : Integer) : Double; override;
+    function GetIntervalCount : Integer; override;
+    procedure SetLowerBound(i : Integer; Value : Double); override;
+    procedure SetUpperBound(i : Integer; Value : Double); override;
+    procedure SetIntervalCount(NewCount : Integer); override;
+  public
+    constructor Create(ABounds : array of Double);
+    procedure Clear; override;
+    procedure AddData(d : Double); override;
+  end;
+
+  // Класс TResource для управления разделяемыми ресурсами
+  TResource = class
+  private
+    FCapacity : Integer;
+    FBusy : Integer;
+    FQueueCount : Integer;
+    FAvailStat : TIntervalStatistics;
+    FBusyStat : TIntervalStatistics;
+    FQueue : array of TList;
+    FPriority : TCompareFunc;
+    function GetQueue(Index : Integer) : TList;
+  public
+    CurrentProc : TProcess;
+    CurrentIndex : Integer;
+    constructor Create(InitCap, InitBusy, QueCnt : Integer;
+        StartTime : Double; PriorFunc : TCompareFunc); overload;
+    constructor Create(InitCap, InitBusy, QueCnt : Integer;
+        StartTime : Double); overload;
+    constructor Create(InitCap, InitBusy, QueCnt : Integer;
+        PriorFunc : TCompareFunc); overload;
+    constructor Create(InitCap, InitBusy, QueCnt : Integer); overload;
+    constructor Create(InitCap : Integer; StartTime : Double;
+        PriorFunc : TCompareFunc); overload;
+    constructor Create(InitCap : Integer; StartTime : Double); overload;
+    constructor Create(InitCap : Integer;
+        PriorFunc : TCompareFunc); overload;
+    constructor Create(InitCap : Integer); overload;
+    constructor Create(PriorFunc : TCompareFunc); overload;
+    constructor Create; overload;
+    destructor Destroy; override;
+    function Available : Integer;
+    function Get(cnt : Integer; NewTime : Double) : Boolean; overload;
+    function Get(cnt : Integer) : Boolean; overload;
+    function Get : Boolean; overload;
+    procedure Release(cnt : Integer; NewTime : Double); overload;
+    procedure Release(cnt : Integer); overload;
+    procedure Release; overload;
+    procedure Add(cnt : Integer; NewTime : Double); overload;
+    procedure Add(cnt : Integer); overload;
+    procedure Add; overload;
+    procedure Sub(cnt : Integer; NewTime : Double); overload;
+    procedure Sub(cnt : Integer); overload;
+    procedure Sub; overload;
+    procedure ClearStat(NewTime : Double); overload;
+    procedure ClearStat; overload;
+    procedure StopStat(NewTime : Double); overload;
+    procedure StopStat; overload;
+    function PreemptedProcs(Index : Integer) : Integer; overload;
+    function PreemptedProcs : Integer; overload;
+    property Busy : Integer read FBusy;
+    property QueueCount : Integer read FQueueCount;
+    property Capacity : Integer read FCapacity;
+    property AvailStat : TIntervalStatistics read FAvailStat;
+    property BusyStat : TIntervalStatistics read FBusyStat;
+    property Queue[Idx : Integer] : TList read GetQueue;
+    property Priority : TCompareFunc read FPriority;
+  end;
+
+  // Класс TGate для моделирования затворов, приостанавливающих процессы
+  TGate = class
+  private
+    FState : Boolean;
+    FStat : TIntervalStatistics;
+    FQueue : TList;
+  public
+    constructor Create(InitState : Boolean; StartTime : Double); overload;
+    constructor Create(InitState : Boolean); overload;
+    constructor Create; overload;
+    destructor Destroy; override;
+    procedure Open(NewTime : Double); overload;
+    procedure Open; overload;
+    procedure Close(NewTime : Double); overload;
+    procedure Close; overload;
+    procedure StopStat(NewTime : Double); overload;
+    procedure StopStat; overload;
+    procedure ClearStat(NewTime : Double); overload;
+    procedure ClearStat; overload;
+    property State : Boolean read FState;
+    property Stat : TIntervalStatistics read FStat;
+    property Queue : TList read FQueue;
+  end;
+
+// Глобальные процедуры для управления сопрограммами
+//  SwitchTo  - прерывает текущий процесс и возобновляет указанный
+procedure SwitchTo(Proc : TRunningObject);
+//  Detach - прерывает текущий процесс и возобновляет его владельца
+procedure Detach;
+
+procedure DumpEventQueue;
+
+// Активация первого из процессов и объектов-обработчиков набора
+procedure ActivateFirst(const Procs : array of TLink); overload;
+procedure ActivateFirst(Procs : TList); overload;
+procedure ActivateFirstAt(Procs : TList; t : Double); overload;
+procedure ActivateFirstAt(const Procs : array of TLink; t : Double); overload;
+procedure ActivateFirstPriorAt(const Procs : array of TLink;
+    t : Double); overload;
+procedure ActivateFirstPriorAt(Procs : TList; t : Double); overload;
+procedure ActivateFirstDelay(const Procs : array of TLink;
+    t : Double); overload;
+procedure ActivateFirstDelay(Procs : TList; t : Double); overload;
+procedure ActivateFirstPriorDelay(const Procs : array of TLink;
+    t : Double); overload;
+procedure ActivateFirstPriorDelay(Procs : TList; t : Double); overload;
+procedure ActivateFirstAfter(const Procs : array of TLink; l : TLink); overload;
+procedure ActivateFirstAfter(Procs : TList; l : TLink); overload;
+procedure ActivateFirstBefore(const Procs : array of TLink;
+    l : TLink); overload;
+procedure ActivateFirstBefore(Procs : TList; l : TLink); overload;
+// Активация всех процессов и объектов-обработчиков из набора
+procedure ActivateAll(const Procs : array of TLink); overload;
+procedure ActivateAll(Procs : TList); overload;
+procedure ActivateAllAt(Procs : TList; t : Double); overload;
+procedure ActivateAllAt(const Procs : array of TLink; t : Double); overload;
+procedure ActivateAllPriorAt(const Procs : array of TLink;
+    t : Double); overload;
+procedure ActivateAllPriorAt(Procs : TList; t : Double); overload;
+procedure ActivateAllDelay(const Procs : array of TLink; t : Double); overload;
+procedure ActivateAllDelay(Procs : TList; t : Double); overload;
+procedure ActivateAllPriorDelay(const Procs : array of TLink;
+    t : Double); overload;
+procedure ActivateAllPriorDelay(Procs : TList; t : Double); overload;
+procedure ActivateAllAfter(const Procs : array of TLink; l : TLink); overload;
+procedure ActivateAllAfter(Procs : TList; l : TLink); overload;
+procedure ActivateAllBefore(const Procs : array of TLink; l : TLink); overload;
+procedure ActivateAllBefore(Procs : TList; l : TLink); overload;
+
+// Управление ресурсами и затворами
+procedure ReleaseResource(Res : TResource; Count : Integer); overload;
+procedure ReleaseResource(Res : TResource); overload;
+procedure ChangeResource(Res : TResource; Count : Integer);
+procedure CloseGate(Gate : TGate);
+procedure OpenGate(Gate : TGate);
+
+procedure RunSimulation(sim : TSimulation);
+function Chars(Count : Integer; Ch : Char) : string;
+function Min(a, b : Double) : Double; overload;
+function Max(a, b : Double) : Double; overload;
+function Min(a, b : Integer) : Integer; overload;
+function Max(a, b : Integer) : Integer; overload;
+
+procedure WriteStat(Header : string; Stat : TStatistics); overload;
+procedure WriteStat(Header : string; Stat : TIntervalStatistics); overload;
+procedure WriteStat(Header : string; Stat : TTimeBetStatistics); overload;
+procedure WriteStat(Header : string; Stat : TActionStatistics); overload;
+procedure WriteStat(Header : string; Stat : TServiceStatistics); overload;
+procedure WriteStat(Header : string; Queue : TList); overload;
+procedure WriteStat(Header : string; Res : TResource); overload;
+procedure WriteStat(Header : string; Gate : TGate); overload;
+procedure WriteHist(Header : string; Hist : THistogram);
+
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Stat : array of TStatistics); overload;
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Stat : array of TIntervalStatistics); overload;
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Stat : array of TTimeBetStatistics); overload;
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Stat : array of TActionStatistics); overload;
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Stat : array of TServiceStatistics); overload;
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Queue : array of TList); overload;
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Res : array of TResource); overload;
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Gate : array of TGate); overload;
+procedure DrawHistCell(Grid : TDrawGrid; ACol, ARow : Integer; Rect : TRect;
+    Hist : THistogram);
+
+implementation
+uses Graphics;
+
+var
+  GlobalSP : Cardinal;
+  CurrentProc : TRunningObject = nil;
+  CurrentSim : TSimulation = nil;
+
+{ TRunningObject }
+
+// Конструктор.
+// В конструкторах производных классов ОБЯЗАТЕЛЬНО должен вызываться ПОСЛЕДНИМ
+constructor TRunningObject.Create;
+begin
+  inherited Create;
+  Owner := CurrentProc;
+  FTerminated := False;
+  New(LocalStack);
+  Run;
+end;
+
+// Деструктор
+destructor TRunningObject.Destroy;
+begin
+  Dispose(LocalStack);
+  inherited;
+end;
+
+// Инициализация локального стека и переход к исполнению
+procedure TRunningObject.Run;
+var
+  OldSP : Cardinal;
+begin
+  asm
+    push dword ptr [ebp-8]   // Регистр EBX
+    push edx
+    push esi
+    push edi
+    push ebp
+    mov eax, esp
+    mov OldSP, esp
+  end;
+  // Сохранение контекста процесса-владельца
+  if Owner = nil then
+    GlobalSP := OldSP
+  else
+    Owner.SavedSP := OldSP;
+  // Переключение к своему контексту
+  CurrentProc := Self;
+  asm
+    mov eax, [esi+LocalStack]
+    mov esp, eax
+    add esp, LocalStackSize
+  end;
+  Execute;
+  FTerminated := True;
+end;
+
+// Переключение к другой сопрограмме
+procedure SwitchTo(Proc : TRunningObject);
+var
+  OldSP, NewSP : Cardinal;
+begin
+  asm
+    push ebx
+    push edx
+    push esi
+    push edi
+    push ebp
+    mov eax, esp
+    mov OldSP, esp
+  end;
+  if CurrentProc = nil then
+    GlobalSP := OldSP
+  else
+    CurrentProc.SavedSP := OldSP;
+  if Proc = nil then
+    NewSP := GlobalSP
+  else if Proc.Terminated then
+    Exit   // Ошибка, попытка переключения на завершенный процесс
+    // Здесь следует поставить генерацию исключения
+  else
+    NewSP := Proc.SavedSP;
+  CurrentProc := Proc;
+{  if (Proc = nil) or (Proc is TSimulation) then
+    CurrentSim := Proc as TSimulation;
+}
+  asm
+    mov eax, NewSP
+    mov esp, eax
+    pop ebp
+    pop edi
+    pop esi
+    pop edx
+    pop ebx
+  end;
+end;
+
+// Завершение процесса и переключение на глобальный процесс
+procedure Detach;
+var
+  OldSP, NewSP : Cardinal;
+begin
+  asm
+    push ebx
+    push edx
+    push esi
+    push edi
+    push ebp
+    mov eax, esp
+    mov OldSP, esp
+  end;
+  if CurrentProc = nil then
+    // Исполнение в контексте глобального процесса невозможно
+    Exit
+  else
+    CurrentProc.SavedSP := OldSP;
+  if CurrentProc.Owner = nil then
+    NewSP := GlobalSP
+  else if CurrentProc.Owner.Terminated then
+    Exit   // Ошибка, попытка переключения на завершенный процесс
+    // Здесь следует поставить генерацию исключения
+  else
+    NewSP := CurrentProc.Owner.SavedSP;
+  CurrentProc := CurrentProc.Owner;
+{  if (CurrentProc = nil) or (CurrentProc is TSimulation) then
+    CurrentSim := CurrentProc as TSimulation
+  else if CurrentProc is TProcess then
+    CurrentSim := (CurrentProc as TProcess).Parent;
+}
+  asm
+    mov eax, NewSP
+    mov esp, eax
+    pop ebp
+    pop edi
+    pop esi
+    pop edx
+    pop ebx
+  end;
+end;
+
+{ TLinkage }
+
+constructor TLinkage.Create;
+begin
+  FPrev := nil;
+  FNext := nil;
+  FHeader := nil;
+end;
+
+function TLinkage.Next: TLink;
+begin
+  if FNext = nil then
+    Result := nil
+  else if FNext is TLink then
+    Result := FNext as TLink
+  else
+    Result := nil;
+end;
+
+function TLinkage.Prev: TLink;
+begin
+  if FPrev = nil then
+    Result := nil
+  else if FPrev is TLink then
+    Result := FPrev as TLink
+  else
+    Result := nil;
+end;
+
+{ TLink }
+
+destructor TLink.Destroy;
+begin
+  // Перед удалением ячейки ее нужно исключит из текущего списка
+  Remove;
+  inherited;
+end;
+
+// Получение заголовочной ячейки списка
+function TLink.GetHeader: TList;
+begin
+  Result := FHeader;
+end;
+
+// Вставка ячейки в список
+procedure TLink.Insert(L: TList);
+var
+  lnk : TLink;
+begin
+  // Если не задана функция упорядочения, вставить в конец
+  if @L.OrderFunc = nil then
+    InsertLast(L)
+  else
+  begin
+    // Найти мсето вставки в соответствии с функцией упорядочения
+    lnk := L.First;
+    while lnk <> nil do
+    begin
+      if L.OrderFunc(Self, lnk) then
+        Break;
+      lnk := lnk.Next;
+    end;
+    // Если список закончен
+    if lnk = nil then
+      // Вставить в конец
+      InsertLast(L)
+    else
+      // Иначе вставить перед найденной ячейкой
+      InsertBefore(lnk);
+  end;
+end;
+
+// Вставка ячейки в список
+//   в соответствии с произвольной функцией упорядочения
+procedure TLink.Insert(L: TList; Order: TCompareFunc);
+var
+  lnk : TLink;
+begin
+  // Найти место вставки
+  lnk := L.First;
+  while lnk <> nil do
+  begin
+    if Order(Self, lnk) then
+      Break;
+    lnk := lnk.Next;
+  end;
+  // Если список закончен
+  if lnk = nil then
+    // Вставить в конец
+    InsertLast(L)
+  else
+    // Иначе вставить перед найденной ячейкой
+    InsertBefore(lnk);
+end;
+
+// Вставка ячейки в список после указанной ячейки
+procedure TLink.InsertAfter(L: TLinkage);
+begin
+  Remove;
+  InsertTime := CurrentSim.SimTime;
+  FPrev := L;
+  FNext := L.FNext;
+  FNext.FPrev := Self;
+  L.FNext := Self;
+  FHeader := FPrev.FHeader;
+  Inc(FHeader.FSize);
+  FHeader.LengthStat.AddData(FHeader.Size, CurrentSim.SimTime);
+end;
+
+// Вставка ячейки в список перед указанной ячейкой
+procedure TLink.InsertBefore(L: TLinkage);
+begin
+  Remove;
+  InsertTime := CurrentSim.SimTime;
+  FNext := L;
+  FPrev := L.FPrev;
+  FPrev.FNext := Self;
+  L.FPrev := Self;
+  FHeader := FPrev.FHeader;
+  Inc(FHeader.FSize);
+  FHeader.LengthStat.AddData(FHeader.Size, CurrentSim.SimTime);
+end;
+
+// Вставка ячейки в список на первое место
+procedure TLink.InsertFirst(L: TList);
+begin
+  InsertAfter(L);
+end;
+
+// Вставка ячейки в список на последнее место
+procedure TLink.InsertLast(L: TList);
+begin
+  InsertBefore(L);
+end;
+
+function TLink.IsFirst: Boolean;
+begin
+  Result := (Prev = nil);
+end;
+
+function TLink.IsLast: Boolean;
+begin
+  Result := (Next = nil);
+end;
+
+// Исключение ячейки из списка
+procedure TLink.Remove;
+begin
+  if FNext <> nil then
+  begin
+    Dec(FHeader.FSize);
+    FNext.FPrev := FPrev;
+    FPrev.FNext := FNext;
+    FNext := nil;
+    FPrev := nil;
+    FHeader.LengthStat.AddData(FHeader.Size, CurrentSim.SimTime);
+    FHeader.WaitStat.AddData(CurrentSim.SimTime - InsertTime);
+    FHeader := nil;
+  end;
+end;
+
+{ TList }
+
+// Очистка списка с удалением всех находящихся в нем ячеек
+procedure TList.Clear;
+begin
+  while not Empty do
+    First.Free;
+end;
+
+// Очистка статистики списка
+procedure TList.ClearStat;
+begin
+  LengthStat.Clear(CurrentSim.SimTime);
+  WaitStat.Clear;
+end;
+
+// Очистка статистики списка с привязкой к моменту времени
+procedure TList.ClearStat(NewTime: Double);
+begin
+  LengthStat.Clear(NewTime);
+  WaitStat.Clear;
+end;
+
+// Стандартный конструктор
+constructor TList.Create;
+begin
+  FNext := Self;
+  FPrev := Self;
+  FSize := 0;
+  FHeader := Self;
+  OrderFunc := nil;
+  LengthStat := TIntervalStatistics.Create(0, CurrentSim.SimTime);
+  WaitStat := TStatistics.Create;
+end;
+
+// Конструктор с привязкой ко времени
+constructor TList.Create(SimTime: Double);
+begin
+  FNext := Self;
+  FPrev := Self;
+  FSize := 0;
+  FHeader := Self;
+  OrderFunc := nil;
+  LengthStat := TIntervalStatistics.Create(0, SimTime);
+  WaitStat := TStatistics.Create;
+end;
+
+// Конструктор с указанием функции упорядочения
+constructor TList.Create(Order: TCompareFunc);
+begin
+  FNext := Self;
+  FPrev := Self;
+  FSize := 0;
+  FHeader := Self;
+  OrderFunc := Order;
+  LengthStat := TIntervalStatistics.Create(0, CurrentSim.SimTime);
+  WaitStat := TStatistics.Create;
+end;
+
+// Конструктор с привязкой ко времени и указанием функции упорядочения
+constructor TList.Create(Order: TCompareFunc; SimTime: Double);
+begin
+  FNext := Self;
+  FPrev := Self;
+  FSize := 0;
+  FHeader := Self;
+  OrderFunc := Order;
+  LengthStat := TIntervalStatistics.Create(0, SimTime);
+  WaitStat := TStatistics.Create;
+end;
+
+destructor TList.Destroy;
+begin
+  // При удалении списка удаляются все находящиеся в нем объекты
+  Clear;
+  LengthStat.Free;
+  WaitStat.Free;
+end;
+
+//  Проверка списка на пустоту
+function TList.Empty: Boolean;
+begin
+  Result := (FNext = Self);
+end;
+
+// Указатель на первую ячейку
+function TList.First: TLink;
+begin
+  Result := Next;
+end;
+
+// Указатель на последнюю ячейку
+function TList.Last: TLink;
+begin
+  Result := Prev;
+end;
+
+// Установка функции упорядочения
+procedure TList.SetOrderFunc(NewOrderFunc: TCompareFunc);
+begin
+  // Функция может устанавливаться не более одного раза
+  //   и только для пустого списка
+  if (@OrderFunc <> nil) then
+    raise ESimulationException.Create('Cannot redefine Order of a list');
+  if not Empty then
+    raise ESimulationException.Create(
+        'Cannot define Order for a non-empty list');
+  OrderFunc := NewOrderFunc;
+end;
+
+// Вычисление размера списка
+function TList.Size: Integer;
+begin
+  Result := FSize;
+end;
+
+// Коррекция статистики к текущему времени
+procedure TList.StopStat(NewTime: Double);
+begin
+  LengthStat.StopStat(NewTime);
+end;
+
+procedure TList.StopStat;
+begin
+  StopStat(CurrentSim.SimTime);
+end;
+
+{ TProcess }
+
+// Активация процесса
+procedure TProcess.Activate;
+begin
+  ActivateAfter(Parent.Calendar.First);
+end;
+
+procedure ActivateFirst(const Procs: array of TLink);
+begin
+  ActivateFirstAfter(Procs, CurrentSim.Calendar.First);
+end;
+
+procedure ActivateFirst(Procs: TList);
+begin
+  ActivateFirstAfter(Procs, CurrentSim.Calendar.First);
+end;
+
+procedure ActivateAll(Procs: TList);
+begin
+  ActivateAllAfter(Procs, CurrentSim.Calendar.First);
+end;
+
+procedure ActivateAll(const Procs: array of TLink);
+begin
+  ActivateAllAfter(Procs, CurrentSim.Calendar.First);
+end;
+
+// Активация процесса после заданного процесса или объекта-обработчика
+procedure TProcess.ActivateAfter(l : TLink);
+var
+  p : TProcess;
+  h : TEventHandler;
+  en : TBaseEventNotice;
+begin
+  if not Idle then
+    Exit;
+  if l is TProcess then
+  begin
+    p := l as TProcess;
+    if p.Idle then
+      raise ESimulationException.Create(
+          'Cannot call ActivateAfter(l) after idle process');
+    Event := TProcessEventNotice.Create(p.Event.EventTime, Self);
+    Event.InsertAfter(p.Event);
+  end
+  else if l is TEventHandler then
+  begin
+    h := l as TEventHandler;
+    if h.Idle then
+      raise ESimulationException.Create(
+          'Cannot call ActivateAfter(l) after idle event handler');
+    Event := TProcessEventNotice.Create(h.Event.EventTime, Self);
+    Event.InsertAfter(h.Event);
+  end
+  else if l is TBaseEventNotice then
+  begin
+    en := l as TBaseEventNotice;
+    Event := TProcessEventNotice.Create(en.EventTime, Self);
+    Event.InsertAfter(en);
+  end
+  else
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(l) after non-process or event handler');
+end;
+
+procedure ActivateFirstAfter(const Procs : array of TLink; l: TLink);
+var
+  i : Integer;
+begin
+  if (l is TProcess) and (l as TProcess).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after idle process')
+  else if (l is TEventHandler) and (l as TEventHandler).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(l) after idle event handler')
+  else if not (l is TBaseEventNotice) then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after non-process or event handler');
+  for i := 0 to Length(Procs) - 1 do
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+    begin
+      (Procs[i] as TProcess).ActivateAfter(l);
+      Exit;
+    end
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+    begin
+      (Procs[i] as TEventHandler).ActivateAfter(l);
+      Exit;
+    end;
+end;
+
+procedure ActivateFirstAfter(Procs: TList; l : TLink);
+var
+  lnk : TLink;
+begin
+  if (l is TProcess) and (l as TProcess).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after idle process')
+  else if (l is TEventHandler) and (l as TEventHandler).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(l) after idle event handler')
+  else if not (l is TBaseEventNotice) then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after non-process or event handler');
+  lnk := Procs.First;
+  // Поиск первого приостановленного процесса или объекта-обработчика
+  while lnk <> nil do
+  begin
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+    begin
+      (lnk as TProcess).ActivateAfter(l);
+      Exit;
+    end
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+    begin
+      (lnk as TEventHandler).ActivateAfter(l);
+      Exit;
+    end;
+    lnk := lnk.Next;
+  end;
+end;
+
+procedure ActivateAllAfter(const Procs: array of TLink; l : TLink);
+var
+  i : Integer;
+  lnkPrev : TLink;
+begin
+  if (l is TProcess) and (l as TProcess).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAllAfter(Procs, l) after idle process')
+  else if (l is TEventHandler) and (l as TEventHandler).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAllAfter(Procs, l) after idle event handler')
+  else if not (l is TBaseEventNotice) then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAllAfter(Procs, l) after non-process or event handler');
+  lnkPrev := l;
+  for i := 0 to Length(Procs) - 1 do
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+    begin
+      (Procs[i] as TProcess).ActivateAfter(lnkPrev);
+      lnkPrev := Procs[i];
+    end
+    else if (Procs[i] is TEventHandler) and
+        (Procs[i] as TEventHandler).Idle then
+    begin
+      (Procs[i] as TEventHandler).ActivateAfter(lnkPrev);
+      lnkPrev := Procs[i];
+    end;
+end;
+
+procedure ActivateAllAfter(Procs: TList; l : TLink);
+var
+  lnk, lnkPrev : TLink;
+begin
+  if (l is TProcess) and (l as TProcess).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAllAfter(Procs, l) after idle process')
+  else if (l is TEventHandler) and (l as TEventHandler).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAllAfter(Procs, l) after idle event handler')
+  else if not (l is TBaseEventNotice) then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAllAfter(Procs, l) after non-process or event handler');
+  lnkPrev := l;
+  lnk := Procs.First;
+  while lnk <> nil do
+  begin
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+    begin
+      (lnk as TProcess).ActivateAfter(lnkPrev);
+      lnkPrev := lnk;
+    end
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+    begin
+      (lnk as TEventHandler).ActivateAfter(lnkPrev);
+      lnkPrev := lnk;
+    end;
+    lnk := lnk.Next;
+  end;
+end;
+
+// Активация процесса в заданное время
+procedure TProcess.ActivateAt(t: Double);
+begin
+  if not Idle then
+    Exit;
+  if t < SimTime then
+    t := SimTime;
+  Event := TProcessEventNotice.Create(t, Self);
+  Event.Insert(Parent.Calendar);
+end;
+
+procedure ActivateFirstAt(const Procs : array of TLink; t: Double);
+var
+  i : Integer;
+begin
+  for i := 0 to Length(Procs) - 1 do
+    // Поиск первого приостановленного процесса или обработчика
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+    begin
+      (Procs[i] as TProcess).ActivateAt(t);
+      Exit;
+    end
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+    begin
+      (Procs[i] as TEventHandler).ActivateAt(t);
+      Exit;
+    end;
+end;
+
+procedure ActivateFirstAt(Procs: TList; t: Double);
+var
+  lnk : TLink;
+begin
+  lnk := Procs.First;
+  while lnk <> nil do
+  begin
+    // Поиск первого приостановленного процесса
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+    begin
+      (lnk as TProcess).ActivateAt(t);
+      Exit;
+    end
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+    begin
+      (lnk as TEventHandler).ActivateAt(t);
+      Exit;
+    end;
+    lnk := lnk.Next;
+  end;
+end;
+
+procedure ActivateAllAt(const Procs: array of TLink; t: Double);
+var
+  i : Integer;
+begin
+  for i := 0 to Length(Procs) - 1 do
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+      (Procs[i] as TProcess).ActivateAt(t)
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+      (Procs[i] as TEventHandler).ActivateAt(t);
+end;
+
+procedure ActivateAllAt(Procs: TList; t: Double);
+var
+  lnk : TLink;
+begin
+  lnk := Procs.First;
+  while lnk <> nil do
+  begin
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+      (lnk as TProcess).ActivateAt(t)
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+      (lnk as TEventHandler).ActivateAt(t);
+    lnk := lnk.Next;
+  end;
+end;
+
+// Активация процесса перед заданным
+procedure TProcess.ActivateBefore(l : TLink);
+var
+  p : TProcess;
+  h : TEventHandler;
+  en : TBaseEventNotice;
+begin
+  if not Idle then
+    Exit;
+  if l is TProcess then
+  begin
+    p := l as TProcess;
+    if p.Idle then
+      raise ESimulationException.Create(
+          'Cannot call ActivateAfter(l) after idle process');
+    Event := TProcessEventNotice.Create(p.Event.EventTime, Self);
+    Event.InsertBefore(p.Event);
+  end
+  else if l is TEventHandler then
+  begin
+    h := l as TEventHandler;
+    if h.Idle then
+      raise ESimulationException.Create(
+          'Cannot call ActivateAfter(l) after idle event handler');
+    Event := TProcessEventNotice.Create(h.Event.EventTime, Self);
+    Event.InsertBefore(h.Event);
+  end
+  else if l is TBaseEventNotice then
+  begin
+    en := l as TBaseEventNotice;
+    Event := TProcessEventNotice.Create(en.EventTime, Self);
+    Event.InsertBefore(en);
+  end;
+end;
+
+procedure ActivateFirstBefore(const Procs : array of TLink; l : TLink);
+var
+  i : Integer;
+begin
+  if (l is TProcess) and (l as TProcess).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after idle process')
+  else if (l is TEventHandler) and (l as TEventHandler).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(l) after idle event handler')
+  else if not (l is TBaseEventNotice) then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after non-process or event handler');
+  for i := 0 to Length(Procs) - 1 do
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+    begin
+      (Procs[i] as TProcess).ActivateBefore(l);
+      Exit;
+    end
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+    begin
+      (Procs[i] as TEventHandler).ActivateBefore(l);
+      Exit;
+    end;
+end;
+
+procedure ActivateFirstBefore(Procs: TList; l : TLink);
+var
+  lnk : TLink;
+begin
+  if (l is TProcess) and (l as TProcess).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after idle process')
+  else if (l is TEventHandler) and (l as TEventHandler).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(l) after idle event handler')
+  else if not (l is TBaseEventNotice) then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after non-process or event handler');
+  lnk := Procs.First;
+  // Поиск первого приостановленного процесса или объекта-обработчика
+  while lnk <> nil do
+  begin
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+    begin
+      (lnk as TProcess).ActivateBefore(l);
+      Exit;
+    end
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+    begin
+      (lnk as TEventHandler).ActivateBefore(l);
+      Exit;
+    end;
+    lnk := lnk.Next;
+  end;
+end;
+
+procedure ActivateAllBefore(const Procs: array of TLink; l : TLink);
+var
+  i : Integer;
+  lnkLast : TLink;
+begin
+  if (l is TProcess) and (l as TProcess).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after idle process')
+  else if (l is TEventHandler) and (l as TEventHandler).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(l) after idle event handler')
+  else if not (l is TBaseEventNotice) then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after non-process or event handler');
+  lnkLast := nil;
+  for i := 0 to Length(Procs) - 1 do
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+    begin
+      if lnkLast = nil then
+        (Procs[i] as TProcess).ActivateBefore(l)
+      else
+        (Procs[i] as TProcess).ActivateAfter(lnkLast);
+      lnkLast := Procs[i];
+    end
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+    begin
+      if lnkLast = nil then
+        (Procs[i] as TEventHandler).ActivateBefore(l)
+      else
+        (Procs[i] as TEventHandler).ActivateAfter(lnkLast);
+      lnkLast := Procs[i];
+    end;
+end;
+
+procedure ActivateAllBefore(Procs: TList; l : TLink);
+var
+  lnk, lnkLast : TLink;
+begin
+  if (l is TProcess) and (l as TProcess).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after idle process')
+  else if (l is TEventHandler) and (l as TEventHandler).Idle then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(l) after idle event handler')
+  else if not (l is TBaseEventNotice) then
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(Procs, l) after non-process or event handler');
+  lnk := Procs.First;
+  lnkLast := nil;
+  // Поиск первого приостановленного процесса или объекта-обработчика
+  while lnk <> nil do
+  begin
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+    begin
+      if lnkLast = nil then
+        (lnk as TProcess).ActivateBefore(l)
+      else
+        (lnk as TProcess).ActivateAfter(lnkLast);
+      lnkLast := lnk;
+    end
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+    begin
+      if lnkLast = nil then
+        (lnk as TEventHandler).ActivateBefore(l)
+      else
+        (lnk as TEventHandler).ActivateAfter(lnkLast);
+      lnkLast := lnk;
+    end;
+    lnk := lnk.Next;
+  end;
+end;
+
+// Активация процесса с заданной задержкой
+procedure TProcess.ActivateDelay(t: Double);
+begin
+  ActivateAt(SimTime + t);
+end;
+
+procedure ActivateFirstDelay(const Procs : array of TLink; t: Double);
+var
+  i : Integer;
+begin
+  if t < 0 then
+    t := 0;
+  for i := 0 to Length(Procs) - 1 do
+    // Поиск первого приостановленного процесса или обработчика
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+    begin
+      (Procs[i] as TProcess).ActivateDelay(t);
+      Exit;
+    end
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+    begin
+      (Procs[i] as TEventHandler).ActivateDelay(t);
+      Exit;
+    end;
+end;
+
+procedure ActivateFirstDelay(Procs: TList; t: Double);
+var
+  lnk : TLink;
+begin
+  if t < 0 then
+    t := 0;
+  lnk := Procs.First;
+  while lnk <> nil do
+  begin
+    // Поиск первого приостановленного процесса
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+    begin
+      (lnk as TProcess).ActivateDelay(t);
+      Exit;
+    end
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+    begin
+      (lnk as TEventHandler).ActivateDelay(t);
+      Exit;
+    end;
+    lnk := lnk.Next;
+  end;
+end;
+
+procedure ActivateAllDelay(const Procs: array of TLink; t: Double);
+var
+  i : Integer;
+begin
+  if t < 0 then
+    t := 0;
+  for i := 0 to Length(Procs) - 1 do
+    // Поиск первого приостановленного процесса или обработчика
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+      (Procs[i] as TProcess).ActivateDelay(t)
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+      (Procs[i] as TEventHandler).ActivateDelay(t);
+end;
+
+procedure ActivateAllDelay(Procs: TList; t: Double);
+var
+  lnk : TLink;
+begin
+  if t < 0 then
+    t := 0;
+  lnk := Procs.First;
+  while lnk <> nil do
+  begin
+    // Поиск первого приостановленного процесса
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+      (lnk as TProcess).ActivateDelay(t)
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+      (lnk as TEventHandler).ActivateDelay(t);
+    lnk := lnk.Next;
+  end;
+end;
+
+// Активация процесса в заданное время с приоритетом
+procedure TProcess.ActivatePriorAt(t: Double);
+begin
+  if not Idle then
+    Exit;
+  if t < SimTime then
+    t := SimTime;
+  Event := TProcessEventNotice.Create(t, Self);
+  Event.InsertPrior(Parent.Calendar);
+end;
+
+procedure ActivateFirstPriorAt(const Procs : array of TLink; t: Double);
+var
+  i : Integer;
+begin
+  for i := 0 to Length(Procs) - 1 do
+    // Поиск первого приостановленного процесса или обработчика
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+    begin
+      (Procs[i] as TProcess).ActivatePriorAt(t);
+      Exit;
+    end
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+    begin
+      (Procs[i] as TEventHandler).ActivatePriorAt(t);
+      Exit;
+    end;
+end;
+
+procedure ActivateFirstPriorAt(Procs: TList; t: Double);
+var
+  lnk : TLink;
+begin
+  lnk := Procs.First;
+  while lnk <> nil do
+  begin
+    // Поиск первого приостановленного процесса
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+    begin
+      (lnk as TProcess).ActivatePriorAt(t);
+      Exit;
+    end
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+    begin
+      (lnk as TEventHandler).ActivatePriorAt(t);
+      Exit;
+    end;
+    lnk := lnk.Next;
+  end;
+end;
+
+procedure ActivateAllPriorAt(const Procs: array of TLink; t: Double);
+var
+  i : Integer;
+  PrevProc : TLink;
+begin
+  PrevProc := nil;
+  for i := 0 to Length(Procs) - 1 do
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+    begin
+      if PrevProc = nil then
+        (Procs[i] as TProcess).ActivatePriorAt(t)
+      else
+        (Procs[i] as TProcess).ActivateAfter(PrevProc);
+      PrevProc := Procs[i];
+    end
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+    begin
+      if PrevProc = nil then
+        (Procs[i] as TEventHandler).ActivatePriorAt(t)
+      else
+        (Procs[i] as TEventHandler).ActivateAfter(PrevProc);
+      PrevProc := Procs[i];
+    end;
+end;
+
+procedure ActivateAllPriorAt(Procs: TList; t: Double);
+var
+  lnk : TLink;
+  PrevProc : TLink;
+begin
+  PrevProc := nil;
+  lnk := Procs.First;
+  while lnk <> nil do
+  begin
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+    begin
+      if PrevProc = nil then
+        (lnk as TProcess).ActivatePriorAt(t)
+      else
+        (lnk as TProcess).ActivateAfter(PrevProc);
+      PrevProc := lnk;
+    end
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+    begin
+      if PrevProc = nil then
+        (lnk as TEventHandler).ActivatePriorAt(t)
+      else
+        (lnk as TEventHandler).ActivateAfter(PrevProc);
+      PrevProc := lnk;
+    end;
+    lnk := lnk.Next;
+  end;
+end;
+
+// Активация процесса с заданной задержкой с приоритетом
+procedure TProcess.ActivatePriorDelay(t: Double);
+begin
+  ActivatePriorAt(SimTime + t);
+end;
+
+procedure ActivateFirstPriorDelay(const Procs : array of TLink; t: Double);
+var
+  i : Integer;
+begin
+  if t < 0 then
+    t := 0;
+  for i := 0 to Length(Procs) - 1 do
+    // Поиск первого приостановленного процесса или обработчика
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+    begin
+      (Procs[i] as TProcess).ActivatePriorDelay(t);
+      Exit;
+    end
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+    begin
+      (Procs[i] as TEventHandler).ActivatePriorDelay(t);
+      Exit;
+    end;
+end;
+
+procedure ActivateFirstPriorDelay(Procs: TList; t: Double);
+var
+  lnk : TLink;
+begin
+;  if t < 0 then
+    t := 0;
+  lnk := Procs.First;
+  while lnk <> nil do
+  begin
+    // Поиск первого приостановленного процесса
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+    begin
+      (lnk as TProcess).ActivatePriorDelay(t);
+      Exit;
+    end
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+    begin
+      (lnk as TEventHandler).ActivatePriorDelay(t);
+      Exit;
+    end;
+    lnk := lnk.Next;
+  end;
+end;
+
+procedure ActivateAllPriorDelay(const Procs: array of TLink; t: Double);
+var
+  i : Integer;
+  PrevProc : TLink;
+begin
+  PrevProc := nil;
+  for i := 0 to Length(Procs) - 1 do
+    if (Procs[i] is TProcess) and (Procs[i] as TProcess).Idle then
+    begin
+      if PrevProc = nil then
+        (Procs[i] as TProcess).ActivatePriorDelay(t)
+      else
+        (Procs[i] as TProcess).ActivateAfter(PrevProc);
+      PrevProc := Procs[i];
+    end
+    else if (Procs[i] is TEventHandler) and (Procs[i] as TEventHandler).Idle then
+    begin
+      if PrevProc = nil then
+        (Procs[i] as TEventHandler).ActivatePriorDelay(t)
+      else
+        (Procs[i] as TEventHandler).ActivateAfter(PrevProc);
+      PrevProc := Procs[i];
+    end;
+end;
+
+procedure ActivateAllPriorDelay(Procs: TList; t: Double);
+var
+  lnk : TLink;
+  PrevProc : TLink;
+begin
+  PrevProc := nil;
+  lnk := Procs.First;
+  while lnk <> nil do
+  begin
+    if (lnk is TProcess) and (lnk as TProcess).Idle then
+    begin
+      if PrevProc = nil then
+        (lnk as TProcess).ActivatePriorDelay(t)
+      else
+        (lnk as TProcess).ActivateAfter(PrevProc);
+      PrevProc := lnk;
+    end
+    else if (lnk is TEventHandler) and (lnk as TEventHandler).Idle then
+    begin
+      if PrevProc = nil then
+        (lnk as TEventHandler).ActivatePriorDelay(t)
+      else
+        (lnk as TEventHandler).ActivateAfter(PrevProc);
+      PrevProc := lnk;
+    end;
+    lnk := lnk.Next;
+  end;
+end;
+
+// Изменение мощности ресурса
+procedure ChangeResource(Res: TResource; Count: Integer);
+var
+  i : Integer;
+  Proc : TProcess;
+begin
+  // Изменить мощность ресурса
+  Res.Add(Count, CurrentSim.SimTime);
+  // Если мощность увеличена, активировать процессы, ожидающие ресурса
+  if Count > 0 then
+  begin
+    for i := 0 to Res.QueueCount - 1 do
+    begin
+      // Проверка наличия незавершенных действий.
+      //   Их наличие недопустимо, потому что перехват ресурса
+      //   возможен только для ресурса единичной мощности
+      if Res.PreemptedProcs(i) > 0 then
+        raise ESimulationException.Create(
+            'Cannot change resource having preempted actions');
+      if not Res.Queue[i].Empty then
+      begin
+        Proc := Res.Queue[i].First as TProcess;
+        while Proc <> nil do
+        begin
+          Proc.ActivateDelay(0);
+          Proc := Proc.Next as TProcess;
+        end;
+      end;
+    end;
+  end;
+end;
+
+// Удалить процессы, закончившие свою работу
+procedure TProcess.ClearFinished;
+begin
+  Parent.FinishedObjects.Clear;
+end;
+
+// Закрытие затвора
+procedure CloseGate(Gate: TGate);
+begin
+  Gate.Close(CurrentSim.SimTime);
+end;
+
+// Конструктор.
+//   В производных классах унаследованный конструктор ОБЯЗАТЕЛЬНО
+//   должен вызываться ПОСЛЕДНИМ
+constructor TProcess.Create;
+begin
+  inherited Create;
+end;
+
+// Деструктор.
+//   В производных классах унаследованный деструктор ОБЯЗАТЕЛЬНО
+//   должен вызываться ПОСЛЕДНИМ
+destructor TProcess.Destroy;
+begin
+  if Event <> nil then
+     Event.Free;
+  inherited;
+end;
+
+// Время текущего или очередного события процесса
+function TProcess.EventTime: Double;
+begin
+  if not Idle then
+    Result := Event.EventTime
+  else
+    // Для пассивного процесса выдается невозможное значение
+    Result := -1E300;
+end;
+
+// Рабочая процедура процесса.
+//   В производных процессах НЕ НАСЛЕДУЕТСЯ.
+//   Вместо этого переопределяется метод RunProcess
+procedure TProcess.Execute;
+begin
+  // Инициализация
+  Init;
+  // Включение в очередь свободных процессов
+  StartRunning;
+  // Завершение конструктора
+  Detach;
+  // Запоминание времени начала исполнения
+  StartingTime := SimTime;
+  // Исполнение процесса
+  RunProcess;
+  // Завершение
+  FTerminated := True;
+  // На случай непреднамеренного возобновления завершенного процесса
+  while True do
+    Passivate;
+end;
+
+// Помещение проекта в список завершенных
+procedure TProcess.Finish;
+begin
+  Remove;
+  Insert(Parent.FinishedObjects);
+end;
+
+// Захват ресурса
+procedure TProcess.GetResource(Res: TResource; Count, Index: Integer);
+begin
+  // Встать в очередь ожидания
+  Insert(Res.Queue[Index]);
+  // Пока попытка получения ресурса не будет удачной
+  while not Res.Get(Count, SimTime) do
+    Passivate;
+  // Запомнить процесс как текущий (используется для перехвата)
+  Res.CurrentProc := Self;
+  Res.CurrentIndex := Index;
+  // Встать в список свободных процессов (покинув очередь ожидания)
+  StartRunning;
+end;
+
+procedure TProcess.GetResource(Res: TResource; GetRes: TGetResourceFunc;
+  Index: Integer);
+begin
+
+end;
+
+procedure TProcess.GetResource(Res: TResource);
+begin
+
+end;
+
+procedure TProcess.GetResource(Res: TResource; Count: Integer);
+begin
+
+end;
+
+procedure TProcess.GetResource(Res: TResource; GetRes: TGetResourceFunc);
+begin
+
+end;
+
+// Пауза процесса на заданное время
+procedure TProcess.Hold(t: Double);
+begin
+  ReactivateDelay(t);
+end;
+
+// Является ли процесс пассивным?
+function TProcess.Idle: Boolean;
+begin
+  Result := Event = nil;
+end;
+
+// Инициалиация процесса.
+//   В производных классах, если переопределяется, унаследованный метод
+//   вызывается ПЕРВЫМ
+procedure TProcess.Init;
+begin
+  // Получиь ссылку на родительский процесс имитации
+  if (Owner <> nil) and not (Owner is TSimulation) then
+    Parent := (Owner as TProcess).Parent
+  else
+    Parent := Owner as TSimulation;
+  // Изначально в пассивном состоянии
+  Event := nil;
+  TimeLeft := 0;
+end;
+
+// Процесс, которому принадлежит следующее событие
+function TProcess.NextEvent: TBaseEventNotice;
+begin
+  if not Idle then
+    Result := Event.Next as TBaseEventNotice
+  else
+    Result := nil;
+end;
+
+// Открыть затвор и активировать все процессы, ожидающие его открытия
+procedure OpenGate(Gate: TGate);
+begin
+  Gate.Open(CurrentSim.SimTime);
+  ActivateAllDelay(Gate.Queue, 0);
+end;
+
+// Исключить процесс из календаря событий
+procedure TProcess.Passivate;
+begin
+  if Idle then
+    Exit;
+  Event.Free;
+  Event := nil;
+  if Self = CurrentProc then
+    RunNextProc;
+end;
+
+// Перехватить ресурс
+procedure TProcess.PreemptResource(Res: TResource; Index: Integer);
+var
+  Proc : TProcess;
+begin
+  Proc := Res.CurrentProc;
+  // Перехват ресурса возможен при соблюдении следующих условий:
+  // 1. Ресурс имеет единичную мощность
+  // 2. Ресурс в данный момент занят
+  // 3. Ресурс занят свободным процессом
+  //    (то есть, процессом, который сам выполняет действие)
+  // 4. Перехватывающий процесс ставится в более приоритетную очередь,
+  //    чем перехватываемый (то есть, в очередь с меньшим индексом)
+  // 5. При равенстве приоритетов очередей функция сравнения приоритета
+  //    отдает приоритет перехватывающему процессу
+  // При невыполнении любого из этих условий ресурс не может быть перехвачен,
+  //    и процесс просто встает в очередь ожидания ресурса
+  if (Res.Capacity <> 1) or (Res.Available > 0) or
+      Proc.Idle or (Index > Res.CurrentIndex) or
+      ((Index = Res.CurrentIndex) and (@Res.Priority <> nil) and
+      not Res.Priority(Self, Proc)) then
+    GetResource(Res, 1, Index)
+  else
+  begin
+    // Перехват успешен
+    // Вычислить время, оставшееся до завершения действия
+    Proc.TimeLeft := Proc.Event.EventTime - SimTime;
+    // Исключить перехваченный процесс из списка событий
+    Proc.Event.Free;
+    Proc.Event := nil;
+    // Поместить перехваченный процесс на первое место
+    //   в списке его предыдущего ожидания
+    Proc.InsertFirst(Res.Queue[Res.CurrentIndex]);
+    // Освободить и снова захватить ресурс
+    //  (в текущей версии не производит никакого действия,
+    //  но впоследствии может быть учтено при подсчете статистики)
+    Res.Release(1, SimTime);
+    Res.Get(1, SimTime);
+    // Запомнить перехватывающий процесс как текущего владельца ресурса
+    Res.CurrentProc := Self;
+    Res.CurrentIndex := Index;
+    // Выйти из текущей очереди (если таковая есть)
+    StartRunning;
+  end;
+end;
+
+// Реактивировать процесс после текущего
+procedure TProcess.PreemptResource(Res: TResource);
+begin
+
+end;
+
+procedure TProcess.PreemptResourceNoWait(Res: TResource);
+begin
+
+end;
+
+procedure TProcess.PreemptResourceNoWait(Res: TResource; Index: Integer);
+begin
+
+end;
+
+procedure TProcess.Reactivate;
+begin
+  ReactivateAfter(Parent.Calendar.First);
+end;
+
+// Реактивировать процесс после заданного
+procedure TProcess.ReactivateAfter(l : TLink);
+var
+  p : TProcess;
+  h : TEventHandler;
+  en : TBaseEventNotice;
+begin
+  if Idle then
+  begin
+    ActivateAfter(l);
+    Exit;
+  end;
+  if l is TProcess then
+  begin
+    p := l as TProcess;
+    if p.Idle then
+      raise ESimulationException.Create(
+          'Cannot ReactivateAfter(l) after idle process');
+    if Event.IsFirst then
+    begin
+      Event.EventTime := p.Event.EventTime;
+      Event.InsertAfter(p.Event);
+      RunNextProc;
+    end
+    else
+    begin
+      Event.EventTime := p.Event.EventTime;
+      Event.InsertAfter(p.Event);
+    end;
+  end
+  else if l is TEventHandler then
+  begin
+    h := l as TEventHandler;
+    if h.Idle then
+      raise ESimulationException.Create(
+          'Cannot ReactivateAfter(l) after idle event handler');
+    if Event.IsFirst then
+    begin
+      Event.EventTime := h.Event.EventTime;
+      Event.InsertAfter(h.Event);
+      RunNextProc;
+    end
+    else
+    begin
+      Event.EventTime := h.Event.EventTime;
+      Event.InsertAfter(h.Event);
+    end;
+  end
+  else if l is TBaseEventNotice then
+  begin
+    en := l as TBaseEventNotice;
+    if Event.IsFirst then
+    begin
+      Event.EventTime := en.EventTime;
+      Event.InsertAfter(en);
+      RunNextProc;
+    end
+    else
+    begin
+      Event.EventTime := en.EventTime;
+      Event.InsertAfter(en);
+    end;
+  end;
+end;
+
+// Реактивировать процесс в заданное время
+procedure TProcess.ReactivateAt(t: Double);
+begin
+  if Idle then
+  begin
+    ActivateAt(t);
+    Exit;
+  end;
+  if t < SimTime then
+    t := SimTime;
+  if Event.IsFirst then
+  begin
+    Event.SetTime(t);
+    RunNextProc;
+  end
+  else
+    Event.SetTime(t);
+end;
+
+// Реактивировать процесс перед заданным
+procedure TProcess.ReactivateBefore(l : TLink);
+var
+  p : TProcess;
+  h : TEventHandler;
+  en : TBaseEventNotice;
+begin
+  if Idle then
+  begin
+    ActivateBefore(l);
+    Exit;
+  end;
+  if l is TProcess then
+  begin
+    p := l as TProcess;
+    if p.Idle then
+      raise ESimulationException.Create(
+          'Cannot ReactivateAfter(l) after idle process');
+    if Event.IsFirst then
+    begin
+      Event.EventTime := p.Event.EventTime;
+      Event.InsertBefore(p.Event);
+      RunNextProc;
+    end
+    else
+    begin
+      Event.EventTime := p.Event.EventTime;
+      Event.InsertBefore(p.Event);
+    end;
+  end
+  else if l is TEventHandler then
+  begin
+    h := l as TEventHandler;
+    if h.Idle then
+      raise ESimulationException.Create(
+          'Cannot ReactivateAfter(l) after idle event handler');
+    if Event.IsFirst then
+    begin
+      Event.EventTime := h.Event.EventTime;
+      Event.InsertBefore(h.Event);
+      RunNextProc;
+    end
+    else
+    begin
+      Event.EventTime := h.Event.EventTime;
+      Event.InsertBefore(h.Event);
+    end;
+  end
+  else if l is TBaseEventNotice then
+  begin
+    en := l as TBaseEventNotice;
+    if Event.IsFirst then
+    begin
+      Event.EventTime := en.EventTime;
+      Event.InsertBefore(en);
+      RunNextProc;
+    end
+    else
+    begin
+      Event.EventTime := en.EventTime;
+      Event.InsertBefore(en);
+    end;
+  end;
+end;
+
+// Реактивировать процесс с задержкой
+procedure TProcess.ReactivateDelay(t: Double);
+begin
+  ReactivateAt(SimTime + t);
+end;
+
+// Реактивировать процесс в заданное время с приоритетом
+procedure TProcess.ReactivatePriorAt(t: Double);
+begin
+  if Idle then
+  begin
+    ActivatePriorAt(t);
+    Exit;
+  end;
+  if t < SimTime then
+    t := SimTime;
+  if Event.IsFirst then
+  begin
+    Event.SetTimePrior(t);
+    RunNextProc;
+  end
+  else
+    Event.SetTimePrior(t);
+end;
+
+// Реактивировать процесс с заданной задержкой с приоритетом
+procedure TProcess.ReactivatePriorDelay(t: Double);
+begin
+  ReactivatePriorAt(SimTime + t);
+end;
+
+// Освобождение ресурса
+procedure ReleaseResource(Res: TResource; Count: Integer);
+var
+  i, Index : Integer;
+  Proc : TProcess;
+begin
+  Proc := nil;
+  Index := -1;
+  // Поиск прерванного процесса.
+  // Если таковой есть, он находится в начале какой-либо очереди
+  for i := 0 to Res.QueueCount - 1 do
+    if Res.PreemptedProcs(i) > 0 then
+    begin
+      Proc := (Res.Queue[i].First as TProcess);
+      Index := i;
+      Break;
+    end;
+  // Если таковой есть
+  if Proc <> nil then
+  begin
+    // Перехваченный ресурс может быть только единичной мощности
+    if Count <> 1 then
+      raise ESimulationException.Create(
+          'Can release only 1 unit of preempted resource');
+    // Освободить ресурс и снова занять его
+    Res.Release(Count, CurrentSim.SimTime);
+    Res.Get(1, CurrentSim.SimTime);
+    // Передать ресурс возвбновленному процессу
+    Res.CurrentProc := Proc;
+    Res.CurrentIndex := Index;
+    // Извлечь процесс из очереди
+    Proc.StartRunning;
+    // Завершить начатое действие
+    Proc.ActivateDelay(Proc.TimeLeft);
+    // Пометить его как не прерванное
+    Proc.TimeLeft := 0;
+  end
+  else
+  begin
+    // Если прерванного процесса нет,
+    //   освободить ресурс
+    Res.Release(Count, CurrentSim.SimTime);
+    // НИкакой процесс им не обладает
+    Res.CurrentProc := nil;
+    Res.CurrentIndex := -1;
+    // Активировать все процессы, ожидающие ресурса
+    for i := 0 to Res.QueueCount - 1 do
+      if not Res.Queue[i].Empty then
+      begin
+        Proc := Res.Queue[i].First as TProcess;
+        while Proc <> nil do
+        begin
+          Proc.ActivateDelay(0);
+          Proc := Proc.Next as TProcess;
+        end;
+      end;
+  end;
+end;
+
+procedure ReleaseResource(Res : TResource); overload;
+begin
+end;
+
+// Переход к очередному процессу
+procedure TProcess.RunNextProc;
+var
+  evt : TBaseEventNotice;
+begin
+  // Взять очередное уведомление о событии и установить записанное в нем время
+  evt := Parent.Calendar.First as TBaseEventNotice;
+  Parent.FSimTime := evt.EventTime;
+  // Исполнить все событийные процедуры
+  //   и стандартные методы объектов-обработчиков
+  while not (evt is TProcessEventNotice) do
+  begin
+    if evt is TProcedureEventNotice then
+      (evt as TProcedureEventNotice).EventProc
+    else if evt is THandlerEventNotice then
+      (evt as THandlerEventNotice).Handler.EventProc;
+    evt.Free;
+    // Перейти к следующему уведомлению
+    evt := Parent.Calendar.First as TBaseEventNotice;
+    Parent.FSimTime := evt.EventTime;
+  end;
+  // Переключиться к очередному процессу
+  SwitchTo((evt as TProcessEventNotice).Proc);
+end;
+
+// Текущее имитационное время
+function TProcess.SimTime : Double;
+begin
+  Result := Parent.SimTime;
+end;
+
+// Помещение процесса в список свободных
+procedure TProcess.StartRunning;
+begin
+  Remove;
+  InsertLast(Parent.RunningObjects);
+end;
+
+// Постановка в очередь ожидания
+procedure TProcess.Wait(l: TList);
+begin
+  Insert(l);
+  Passivate;
+end;
+
+{ TEventNotice }
+
+// Функция упорядочения календаря событий
+function CalendarOrder(A, B : TLink) : Boolean;
+begin
+  Result := (A as TBaseEventNotice).EventTime < (B as TBaseEventNotice).EventTime;
+end;
+
+// Функция упорядочения для приоритетной вставки события
+function CalendarOrderPrior(A, B : TLink) : Boolean;
+begin
+  Result := (A as TBaseEventNotice).EventTime <= (B as TBaseEventNotice).EventTime;
+end;
+
+// Создание уведомления о событии
+constructor TProcessEventNotice.Create(ETime: Double; AProc: TProcess);
+begin
+  inherited Create;
+  EventTime := ETime;
+  Proc := AProc;
+end;
+
+constructor TProcedureEventNotice.Create(ETime: Double; AEProc: TEventProc);
+begin
+  inherited Create;
+  EventTime := ETime;
+  EventProc := AEProc;
+end;
+
+// Удаление уведомления о событии
+destructor TProcessEventNotice.Destroy;
+begin
+  Proc.Event := nil;
+  inherited Destroy;
+end;
+
+// Уведомление о событии не может встать в календарь перед текущим событием 
+procedure TBaseEventNotice.InsertBefore(l: TLinkage);
+begin
+  if (l is TLink) and (l as TLink).IsFirst then
+    InsertAfter(l)
+  else
+    inherited;
+end;
+
+// Вставка уведомления о событии в календарь с приоритетом
+procedure TBaseEventNotice.InsertPrior(l: TList);
+begin
+  Insert(l, CalendarOrderPrior);
+end;
+
+// Изменение времени события
+procedure TBaseEventNotice.SetTime(NewTime: Double);
+var
+  lst : TList;
+begin
+  lst := GetHeader;
+  Remove;
+  EventTime := NewTime;
+  Insert(lst);
+end;
+
+// Изменение времени события с приоритетом
+procedure TBaseEventNotice.SetTimePrior(NewTime: Double);
+var
+  lst : TList;
+begin
+  lst := GetHeader;
+  Remove;
+  EventTime := NewTime;
+  InsertPrior(lst);
+end;
+
+{ TSimulation }
+
+// Конструктор.
+//   В производном классе ОБЯЗАТЕЛЬНО должен вызываться ПОСЛЕДНИМ
+constructor TSimulation.Create;
+begin
+  FSimTime := 0;
+  FLastCleared := 0;
+  CurrentSim := Self;
+  Calendar := TList.Create(CalendarOrder, 0);
+  RunningObjects := TList.Create;
+  FinishedObjects := TList.Create;
+  Visualizator := nil;
+  inherited Create;
+end;
+
+// Деструктор.
+//   В производном классе ОБЯЗАТЕЛЬНО должен вызываться ПОСЛЕДНИМ
+destructor TSimulation.Destroy;
+begin
+  Visualizator.Free;
+  RunningObjects.Free;
+  FinishedObjects.Free;
+  Calendar.Free;
+  inherited;
+end;
+
+// Рабочая процедура симуляции.
+//   В производном классе не переопределяется.
+//   Вместо этого переопределяется метод RunSimulation
+procedure TSimulation.Execute;
+begin
+  Init;
+  Detach;
+  if Visualizator <> nil then
+    Visualizator.ActivateDelay(0);
+  RunSimulation;
+  Finalize;
+  // Завершение
+  FTerminated := True;
+  while True do
+    Detach;
+end;
+
+// Завершение работы симуляции.
+//   Если в производном классе переопределяется,
+//   унаследованный метод вызывается ПОСЛЕДНИМ
+procedure TSimulation.Finalize;
+begin
+  FTerminated := True;
+end;
+
+// Начальные действия симуляции.
+//   Если в производном классе переопределяется,
+//   унаследованный метод вызывается ПЕРВЫМ
+procedure TSimulation.Init;
+begin
+  inherited;
+  Parent := Self;
+  Event := TProcessEventNotice.Create(0, Self);
+  Event.Insert(Calendar);
+end;
+
+// Имитационное время
+function TSimulation.SimTime : Double;
+begin
+  Result := FSimTime;
+end;
+
+procedure TSimulation.ClearStat;
+begin
+  FLastCleared := SimTime;
+end;
+
+procedure TSimulation.StopStat;
+begin
+  Calendar.StopStat(SimTime);
+end;
+
+{ TStatistics }
+
+// Добавление элемента данных к точечной статистике
+procedure TStatistics.AddData(NewX: Double);
+begin
+  // Если это первый элемент данных
+  if Count = 0 then
+  begin
+    // Инициализировать статистику
+    FMin := NewX;
+    FMax := NewX;
+  end
+  // Учесть элемент
+  else if NewX > FMax then
+    FMax := NewX
+  else if NewX < FMin then
+    FMin := NewX;
+  Inc(FCount);
+  SumX := SumX + NewX;
+  SumX_2 := SumX_2 + Sqr(NewX);
+end;
+
+// Очистка статистики
+procedure TStatistics.Clear;
+begin
+  FCount := 0;
+  SumX := 0;
+  SumX_2 := 0;
+  FMin := 0;
+  FMax := 0;
+end;
+
+// Конструктор. Инициализация статистики
+constructor TStatistics.Create;
+begin
+  FCount := 0;
+  SumX := 0;
+  SumX_2 := 0;
+  FMin := 0;
+  FMax := 0;
+end;
+
+// Стандартное отклонения
+function TStatistics.Deviation: Double;
+begin
+  Result := Sqrt(Disperse);
+end;
+
+// Дисперсия
+function TStatistics.Disperse: Double;
+begin
+  if Count <= 1 then
+    Result := 0
+  else
+    Result := (SumX_2 - Count * Sqr(Mean)) / (Count - 1);
+end;
+
+// Среднее значение
+function TStatistics.Mean: Double;
+begin
+  if Count = 0 then
+    Result := 0
+  else
+    Result := SumX / Count;
+end;
+
+{ TIntervalStatistics }
+
+// Добавление элемента данных к интервальной статистике
+procedure TIntervalStatistics.AddData(NewX, NewTime: Double);
+var
+  dt : Double;
+begin
+  // Промежуток времени с момента последнего обновления
+  dt := NewTime - LastTime;
+  if dt < 0 then
+    // Ошибочное значение
+    raise ESimulationException.Create(
+        'Cannot add interval statistics data prior to last time');
+  // Если с момента последней записи прошло ненулевое время
+  if dt > 0 then
+  begin
+    // Если это первый элемент данных
+    if TotalTime = 0 then
+    begin
+      // Инициализировать статистику
+      FMin := LastX;
+      FMax := LastX;
+    end
+    // Исправить граничные значения
+    else if LastX > FMax then
+      FMax := LastX
+    else if LastX < FMin then
+      FMin := LastX;
+    // Учесть нахождение системы в предыдущем состоянии
+    //   (LastX) в течение времени dt
+    FTotalTime := FTotalTime + dt;
+    SumX := SumX + LastX * dt;
+    SumX_2 := SumX_2 + Sqr(LastX) * dt;
+  end;
+  // Изменить состояние
+  LastX := NewX;
+  LastTime := NewTime;
+end;
+
+procedure TIntervalStatistics.AddData(NewX: Double);
+begin
+  AddData(NewX, CurrentSim.SimTime);
+end;
+
+// Очистка статистики
+procedure TIntervalStatistics.Clear(NewTime : Double);
+begin
+  SumX := 0;
+  SumX_2 := 0;
+  FTotalTime := 0;
+  LastTime := NewTime;
+  FMin := 0;
+  FMax := 0;
+end;
+
+procedure TIntervalStatistics.Clear;
+begin
+  Clear(CurrentSim.SimTime);
+end;
+
+// Конструкторы
+constructor TIntervalStatistics.Create(InitX, InitTime: Double);
+begin
+  LastX := InitX;
+  LastTime := InitTime;
+  FTotalTime := 0;
+  SumX := 0;
+  SumX_2 := 0;
+  FMin := 0;
+  FMax := 0;
+end;
+
+constructor TIntervalStatistics.Create(InitX: Double);
+begin
+  LastX := InitX;
+  LastTime := CurrentSim.SimTime;
+  FTotalTime := 0;
+  SumX := 0;
+  SumX_2 := 0;
+  FMin := 0;
+  FMax := 0;
+end;
+
+// Стандартное отклонение
+function TIntervalStatistics.Deviation: Double;
+begin
+  if Disperse < 0 then
+    Result := 0
+  else
+    Result := Sqrt(Disperse);
+end;
+
+// Дисперсия
+function TIntervalStatistics.Disperse: Double;
+begin
+  if TotalTime = 0 then
+    Result := 0
+  else
+    Result := SumX_2 / TotalTime - Sqr(Mean);
+end;
+
+// Математическое ожидание
+function TIntervalStatistics.Mean: Double;
+begin
+  if TotalTime = 0 then
+    Result := 0
+  else
+    Result := SumX / TotalTime;
+end;
+
+// Коррекция статистики к текущему времени
+procedure TIntervalStatistics.StopStat(NewTime: Double);
+begin
+  AddData(LastX, NewTime);
+end;
+
+procedure TIntervalStatistics.StopStat;
+begin
+  StopStat(CurrentSim.SimTime);
+end;
+
+{ TRandom }
+
+function TRandom.Beta(Alpha, Betta: Double): Double;
+var
+  G1, G2 : Double;
+begin
+  G1 := Gamma(1, Alpha);
+  G2 := Gamma(1, Betta);
+  Result := G1 / (G1 + G2);
+end;
+
+function TRandom.Beta(Min, Mean, Max, Sigma: Double): Double;
+var
+  Alpha, Betta, M, S2 : Double;
+begin
+  M := (Mean - Min) / (Max - Min);
+  S2 := Sqr(Sigma) / Sqr(Max - Min);
+  Alpha := M * (M - Sqr(M) - S2) / S2;
+  Betta := Alpha * (1 - M) / M;
+  Result := Beta(Alpha, Betta) * (Max - Min) + Min;
+end;
+
+constructor TRandom.Create;
+begin
+  Randomize;
+  FSeed := Trunc(Random * $7FFFFFFF) or 1;
+  NextInt;
+end;
+
+constructor TRandom.Create(Seed: Integer);
+begin
+  FSeed := Seed;
+  NextInt;
+end;
+
+function TRandom.Draw(A: Double): Boolean;
+begin
+  Result := NextFloat < A;
+end;
+
+function TRandom.Erlang(Mean: Double; K: Integer): Double;
+var
+  i : Integer;
+  Res : Double;
+begin
+  Res := 1;
+  for i := 1 to K do
+    Res := Res * (1 - NextFloat);
+  Result := -Mean * Ln(Res);
+end;
+
+function TRandom.Exponential(Mean: Double): Double;
+begin
+  Result := NegExp(1 / Mean);
+end;
+
+function TRandom.Gamma(Beta, Alpha: Double): Double;
+var
+  b, X, Y, W, Prod : Double;
+  a, i : Integer;
+begin
+  if Abs(Round(Alpha) - Alpha) < 1e-10 * Abs(Alpha) then
+    Result := Erlang(Beta, Round(Alpha))
+  else if Alpha < 1 then
+  begin
+    repeat
+      X := Exp(Ln(1 - NextFloat) / Alpha);
+      Y := Exp(Ln(1 - NextFloat) / (1 - Alpha));
+    until X + Y <= 1;
+    W := X / (X + Y);
+    Result := -W * Ln(1 - NextFloat) * Beta;
+  end
+  else if Alpha < 5 then
+  begin
+    a := Trunc(Alpha);
+    b := Alpha - a;
+    repeat
+      Prod := 1;
+      for i := 1 to a do
+        Prod := Prod * (1 - NextFloat);
+      X := - Alpha / a * Ln(Prod);
+    until 1 - NextFloat <= Exp(Ln(X / Alpha) * b) * Exp(-b * (X / Alpha - 1));
+    Result := X * Beta;
+  end
+  else if 1 - NextFloat >= Alpha - Trunc(Alpha) then
+    Result := Erlang(Beta, Trunc(Alpha))
+  else
+    Result := Erlang(Beta, Trunc(Alpha) + 1);
+end;
+
+function TRandom.LogNormal(Mean, Sigma: Double): Double;
+var
+  SigmaN2, MeanN : Double;
+begin
+  SigmaN2 := Ln(Sqr(Sigma) / Sqr(Mean) + 1);
+  MeanN := Ln(Mean) - SigmaN2 / 2;
+  Result := Exp(Normal(MeanN, Sqrt(SigmaN2)));
+end;
+
+function TRandom.NegExp(Mean: Double): Double;
+begin
+  Result := -Ln(1 - NextFloat) / Mean;
+end;
+
+function TRandom.NextFloat: Double;
+begin
+  Result := (NextInt / $40000000) / 2;
+end;
+
+function TRandom.NextInt: Integer;
+var
+  L : Int64;
+const
+  a = 843314861;
+  c = 453816693;
+  m2 = 1073741824;
+begin
+  L := FSeed;
+  L := L * a + c;
+  FSeed := Integer(L);
+  if FSeed < 0 then
+  begin
+    Inc(FSeed, m2);
+    Inc(FSeed, m2);
+  end;
+  Result := FSeed;
+end;
+
+function TRandom.NextInt(High: Integer): Integer;
+begin
+  Result := Int64(NextInt) * High div $40000000 div 2;
+end;
+
+function TRandom.NextInt(Low, High: Integer): Integer;
+begin
+  Result := NextInt(High - Low) + Low;
+end;
+
+function Phi(Alpha : Double) : Double;
+var
+  Theta : Double;
+begin
+  Theta := Sqrt(-2 * Ln(Alpha));
+  Result := (2.515517 + 0.802853 * Theta + 0.010328 * Sqr(Theta)) /
+      (1 + 1.432788 * Theta + 0.189269 * Sqr(Theta) +
+      0.001308 * Sqr(Theta) * Theta) - Theta;
+end;
+
+function TRandom.Normal(Mean, Sigma: Double): Double;
+var
+  Rnd1, Rnd2, W : Double;
+begin
+  if HasNextNormal then
+  begin
+    HasNextNormal := False;
+    Result := NextNormal * Sigma + Mean;
+  end
+  else
+  begin
+    HasNextNormal := True;
+    repeat
+      Rnd1 := 2 * NextFloat - 1;
+      Rnd2 := 2 * NextFloat - 1;
+      W := Sqr(Rnd1) + Sqr(Rnd2);
+    until W <= 1;
+    NextNormal := Rnd2 * Sqrt(-2 * Ln(W) / W);
+    Result := Rnd1 * Sqrt(-2 * Ln(W) / W) * Sigma + Mean;
+  end;
+end;
+
+function TRandom.Poisson(Lambda: Double): Integer;
+var
+  i : Integer;
+  Prod, Border : Double;
+begin
+  Border := Exp(-Lambda);
+  Prod := NextFloat;
+  i := 0;
+  while Prod >= Border do
+  begin
+    Prod := Prod * NextFloat;
+    Inc(i);
+  end;
+  Result := i;
+end;
+
+function TRandom.PSNorm(Mean, Sigma: Double; Count: Integer): Double;
+var
+  Sum : Double;
+  i : Integer;
+begin
+  Sum := 0;
+  for i := 1 to Count do
+    Sum := Sum + NextFloat;
+  Sum := Sqrt(12 / Count) * (Sum - Count / 2);
+  Sum := Sum + (Sum * Sum * Sum - 3 * Sum) / 20 / Count;
+  Result := Mean + Sigma * Sum;
+end;
+
+// Получение случайного индекса по таблице Table такого, что
+//  Table[i - 1] <= Random < Table[i]
+//  0, если Random < Table[0]
+//  N, если Random >= Table[N - 1], N - размер массива
+//  Массив Table должен быть упорядочен по возрастанию!
+function TRandom.TableIndex(Table: array of Double): Integer;
+var
+  L, R, M : Integer;
+  Rnd : Double;
+begin
+  if Length(Table) = 0 then
+    Result := 0
+  else
+  begin
+    Rnd := NextFloat;
+    // Двоичный поиск ближайшего большего или равного значения
+    L := 0;
+    R := Length(Table) - 1;
+    while L < R do
+    begin
+      M := (L + R) div 2;
+      if Rnd > Table[M] then
+        L := M + 1
+      else
+        R := M;
+    end;
+    if Rnd < Table[L] then
+      Result := L
+    else
+      // Значение, равное граничному, принадлежит
+      //   следующему диапазону.
+      // Значение, превышающее граничное, может появиться
+      //   только в последнем диапазоне
+      Result := L + 1
+  end;
+end;
+
+function TRandom.Triangular(A, Moda, B: Double): Double;
+var
+  Rnd : Double;
+begin
+  Rnd := NextFloat;
+  if Rnd <= (Moda - A) / (B - A) then
+    Result := A + Sqrt((Moda - A) * (B - A) * Rnd)
+  else
+    Result := B - Sqrt((B - Moda) * (B - A) * (1 - Rnd));
+end;
+
+function TRandom.Uniform(A, B: Double): Double;
+begin
+  Result := NextFloat * (B - A) + A;
+end;
+
+function TRandom.Weibull(Beta, Alpha: Double): Double;
+begin
+  Result := Exp(Ln(-Beta * Ln(1 - NextFloat)) / Alpha);
+end;
+
+{ TUniformHistogram }
+
+procedure TUniformHistogram.AddData(d: Double);
+var
+  iStep : Integer;
+begin
+  if d >= FLow then
+  begin
+    iStep := Trunc((d - FLow) / FStep) + 1;
+    if iStep > FIntervalCount + 1 then
+      iStep := FIntervalCount + 1;
+  end
+  else
+    iStep := 0;
+  Inc(Data[iStep]);
+  Inc(FTotalCount);
+end;
+
+procedure TUniformHistogram.Clear;
+var
+  i : Integer;
+begin
+  for i := 0 to FIntervalCount + 1 do
+    Data[i] := 0;
+  FTotalCount := 0;
+end;
+
+constructor TUniformHistogram.Create(ALow, AStep: Double;
+  AIntervalCount: Integer);
+begin
+  FLow := ALow;
+  FStep := AStep;
+  FIntervalCount := AIntervalCount;
+  SetLength(Data, FIntervalCount + 2);
+  Clear;
+end;
+
+function TUniformHistogram.GetCount(i: Integer): Integer;
+begin
+  if i <= 0 then
+    Result := Data[0]
+  else if i >= FIntervalCount + 1 then
+    Result := Data[FIntervalCount + 1]
+  else
+    Result := Data[i];
+end;
+
+function TUniformHistogram.GetCumulativeCount(i: Integer): Integer;
+var
+  j, Sum : Integer;
+begin
+  Sum := 0;
+  for j := 0 to i do
+    if j <= FIntervalCount + 1 then
+      Sum := Sum + Data[j];
+  Result := Sum;
+end;
+
+function TUniformHistogram.GetCumulativePercent(i: Integer): Double;
+begin
+  if FTotalCount = 0 then
+    Result := 0
+  else
+    Result := GetCumulativeCount(i) / FTotalCount;
+end;
+
+function TUniformHistogram.GetIntervalCount: Integer;
+begin
+  Result := FIntervalCount;
+end;
+
+function TUniformHistogram.GetLowerBound(i: Integer): Double;
+begin
+  if i <= 0 then
+    Result := -1e300
+  else if i >= FIntervalCount + 1 then
+    Result := FLow + FStep * FIntervalCount
+  else
+    Result := FLow + FStep * (i - 1);
+end;
+
+function TUniformHistogram.GetPercent(i: Integer): Double;
+begin
+  if FTotalCount = 0 then
+    Result := 0
+  else
+    Result := GetCount(i) / FTotalCount;
+end;
+
+function TUniformHistogram.GetUpperBound(i: Integer): Double;
+begin
+  if i <= 0 then
+    Result := FLow
+  else if i >= FIntervalCount + 1 then
+    Result := 1e300
+  else
+    Result := FLow + FStep * i;
+end;
+
+procedure TUniformHistogram.SetIntervalCount(NewCount: Integer);
+begin
+  FIntervalCount := NewCount;
+  SetLength(Data, FIntervalCount + 2);
+  Clear;
+end;
+
+procedure TUniformHistogram.SetLowerBound(i: Integer; Value: Double);
+begin
+end;
+
+procedure TUniformHistogram.SetUpperBound(i: Integer; Value: Double);
+begin
+end;
+
+procedure DumpEventQueue;
+var
+  lk : TLinkage;
+  en : TBaseEventNotice;
+begin
+  lk := CurrentSim.Calendar.First;
+  en := lk as TBaseEventNotice;
+  while lk <> nil do
+  begin
+    Write(en.EventTime : 5 : 2, ' : ',
+        (en as TProcessEventNotice).Proc.ClassName, ';');
+    lk := lk.Next;
+    en := lk as TBaseEventNotice;
+  end;
+  WriteLn;
+end;
+
+{ THistogram }
+
+constructor THistogram.Create;
+begin
+  FTotalCount := 0;
+end;
+
+{ TTimeBetStatistics }
+
+procedure TTimeBetStatistics.AddData(NewTime: Double);
+var
+  dt : Double;
+begin
+  if Count < 0 then
+    LastTime := NewTime
+  else
+  begin
+    dt := NewTime - LastTime;
+    if Count = 0 then
+    begin
+      FMax := dt;
+      FMin := dt;
+    end
+    else if dt > FMax then
+      FMax := dt
+    else if dt < FMin then
+      FMin := dt;
+    SumX := SumX + dt;
+    SumX_2 := SumX_2 + Sqr(dt);
+    LastTime := NewTime;
+  end;
+  Inc(FCount);
+end;
+
+procedure TTimeBetStatistics.AddData;
+begin
+  if CurrentProc is TProcess then
+    AddData((CurrentProc as TProcess).SimTime)
+  else
+    raise ESimulationException.Create(
+        'Cannot add time data with no current process');
+end;
+
+procedure TTimeBetStatistics.Clear;
+begin
+  LastTime := -1;
+  FCount := -1;
+  SumX := 0;
+  SumX_2 := 0;
+end;
+
+constructor TTimeBetStatistics.Create;
+begin
+  LastTime := -1;
+  FCount := -1;
+  SumX := 0;
+  SumX_2 := 0;
+end;
+
+function TTimeBetStatistics.Deviation: Double;
+begin
+  Result := Sqrt(Disperse);
+end;
+
+function TTimeBetStatistics.Disperse: Double;
+begin
+  if Count <= 1 then
+    Result := 0
+  else
+    Result := (SumX_2 - Count * Sqr(Mean)) / (Count - 1);
+end;
+
+function TTimeBetStatistics.Mean: Double;
+begin
+  if Count <= 0 then
+    Result := 0
+  else
+    Result := SumX / Count;
+end;
+
+{ TActionStatistics }
+
+procedure TActionStatistics.Clear(NewTime : Double);
+begin
+  FTotalTime := 0;
+  FFinished := 0;
+  FMax := 0;
+  SumX := 0;
+  SumX_2 := 0;
+  LastTime := NewTime;
+end;
+
+procedure TActionStatistics.Clear;
+begin
+  Clear((CurrentProc as TProcess).SimTime);
+end;
+
+constructor TActionStatistics.Create(InitX: Integer; InitTime: Double);
+begin
+  FTotalTime := 0;
+  FFinished := 0;
+  FMax := InitX;
+  LastTime := InitTime;
+  LastX := InitX;
+  SumX := 0;
+  SumX_2 := 0;
+end;
+
+constructor TActionStatistics.Create(InitX: Integer);
+begin
+  FTotalTime := 0;
+  FFinished := 0;
+  FMax := InitX;
+  LastTime := 0;
+  LastX := InitX;
+  SumX := 0;
+  SumX_2 := 0;
+end;
+
+constructor TActionStatistics.Create;
+begin
+  FTotalTime := 0;
+  FFinished := 0;
+  FMax := 0;
+  LastTime := 0;
+  LastX := 0;
+  SumX := 0;
+  SumX_2 := 0;
+end;
+
+function TActionStatistics.Deviation: Double;
+begin
+  Result := Sqrt(Disperse);
+end;
+
+function TActionStatistics.Disperse: Double;
+begin
+  if TotalTime = 0 then
+    Result := 0
+  else
+    Result := SumX_2 / TotalTime - Sqr(Mean);
+end;
+
+procedure TActionStatistics.Finish(NewTime: Double);
+var
+  dt : Double;
+begin
+  if NewTime > LastTime then
+  begin
+    dt := NewTime - LastTime;
+    LastTime := NewTime;
+    SumX := SumX + LastX * dt;
+    SumX_2 := SumX_2 + Sqr(LastX) * dt;
+    FTotalTime := FTotalTime + dt;
+    if LastX > FMax then
+      FMax := LastX;
+  end;
+  Dec(LastX);
+  Inc(FFinished);
+end;
+
+procedure TActionStatistics.Finish;
+begin
+  Finish((CurrentProc as TProcess).SimTime);
+end;
+
+function TActionStatistics.Mean: Double;
+begin
+  if TotalTime = 0 then
+    Result := 0
+  else
+    Result := SumX / TotalTime;
+end;
+
+procedure TActionStatistics.Start(NewTime: Double);
+var
+  dt : Double;
+begin
+  if NewTime > LastTime then
+  begin
+    dt := NewTime - LastTime;
+    LastTime := NewTime;
+    SumX := SumX + LastX * dt;
+    SumX_2 := SumX_2 + Sqr(LastX) * dt;
+    FTotalTime := FTotalTime + dt;
+  end;
+  Inc(LastX);
+end;
+
+procedure TActionStatistics.Start;
+begin
+  Start((CurrentProc as TProcess).SimTime);
+end;
+
+procedure TActionStatistics.StopStat(NewTime: Double);
+var
+  dt : Double;
+begin
+  if NewTime > LastTime then
+  begin
+    dt := NewTime - LastTime;
+    LastTime := NewTime;
+    SumX := SumX + LastX * dt;
+    SumX_2 := SumX_2 + Sqr(LastX) * dt;
+    FTotalTime := FTotalTime + dt;
+  end;
+end;
+
+procedure TActionStatistics.StopStat;
+begin
+  StopStat((CurrentProc as TProcess).SimTime);
+end;
+
+{ TServiceStatistics }
+
+procedure TServiceStatistics.Clear(NewTime: Double);
+begin
+  FFinished := 0;
+  FMaxBusyTime := 0;
+  FMaxIdleTime := 0;
+  FMaxBusy := LastUtil;
+  FMinBusy := LastUtil;
+  LastBlockTime := 0;
+  LastBusyStart := NewTime;
+  LastBusyTime := 0;
+  LastIdleTime := 0;
+  LastIdleStart := NewTime;
+  LastTime := NewTime;
+  SumBlockage := 0;
+  SumX := 0;
+  SumX_2 := 0;
+  FTotalTime := 0;
+end;
+
+procedure TServiceStatistics.Clear;
+begin
+  Clear((CurrentProc as TProcess).SimTime);
+end;
+
+constructor TServiceStatistics.Create(Devices, InitUtil: Integer;
+  InitTime: Double);
+begin
+  DeviceCount := Devices;
+  FFinished := 0;
+  FMaxBusyTime := 0;
+  FMaxIdleTime := 0;
+  FMaxBusy := 0;
+  FMinBusy := Devices;
+  LastBlockage := 0;
+  LastBlockTime := 0;
+  LastBusyStart := InitTime;
+  LastBusyTime := 0;
+  LastIdleTime := 0;
+  LastIdleStart := InitTime;
+  LastTime := InitTime;
+  LastUtil := InitUtil;
+  SumBlockage := 0;
+  SumX := 0;
+  SumX_2 := 0;
+  FTotalTime := 0;
+end;
+
+constructor TServiceStatistics.Create(Devices: Integer);
+begin
+  DeviceCount := Devices;
+  FFinished := 0;
+  FMaxBusyTime := 0;
+  FMaxIdleTime := 0;
+  FMaxBusy := 0;
+  FMinBusy := Devices;
+  LastBlockage := 0;
+  LastBlockTime := 0;
+  LastBusyStart := 0;
+  LastBusyTime := 0;
+  LastIdleTime := 0;
+  LastIdleStart := 0;
+  LastTime := 0;
+  LastUtil := 0;
+  SumBlockage := 0;
+  SumX := 0;
+  SumX_2 := 0;
+  FTotalTime := 0;
+end;
+
+function TServiceStatistics.Deviation: Double;
+begin
+  Result := Sqrt(Disperse);
+end;
+
+function TServiceStatistics.Disperse: Double;
+begin
+  if TotalTime = 0 then
+    Result := 0
+  else
+    Result := SumX_2 / TotalTime - Sqr(Mean);
+end;
+
+procedure TServiceStatistics.Finish(NewTime: Double);
+var
+  dt : Double;
+begin
+  dt := NewTime - LastTime;
+  if dt < 0 then
+    dt := 0;
+  if dt > 0 then
+  begin
+    SumX := SumX + LastUtil * dt;
+    SumX_2 := SumX_2 + Sqr(LastUtil) * dt;
+    if LastUtil > FMaxBusy then
+      FMaxBusy := LastUtil
+    else if LastUtil < FMinBusy then
+      FMinBusy := LastUtil;
+    FTotalTime := FTotalTime + dt;
+    LastTime := NewTime;
+  end;
+  Dec(LastUtil);
+  Inc(FFinished);
+  if LastUtil = 0 then
+  begin
+    dt := NewTime - LastBusyStart;
+    if LastIdleTime = 0 then
+      LastBusyTime := LastBusyTime + dt
+    else
+      LastBusyTime := dt;
+    if LastBusyTime > FMaxBusyTime then
+      FMaxBusyTime := LastBusyTime;
+    LastIdleStart := NewTime;
+  end;
+end;
+
+procedure TServiceStatistics.Finish;
+begin
+  Finish((CurrentProc as TProcess).SimTime);
+end;
+
+procedure TServiceStatistics.FinishBlock(NewTime: Double);
+var
+  dt : Double;
+begin
+  dt := NewTime - LastBlockTime;
+  if dt < 0 then
+    dt := 0;
+  if dt > 0 then
+  begin
+    SumBlockage := SumBlockage + dt * LastBlockage;
+    LastBlockTime := NewTime;
+  end;
+  Dec(LastBlockage);
+end;
+
+procedure TServiceStatistics.FinishBlock;
+begin
+  FinishBlock((CurrentProc as TProcess).SimTime);
+end;
+
+function TServiceStatistics.Mean: Double;
+begin
+  if TotalTime = 0 then
+    Result := 0
+  else
+    Result := SumX / TotalTime;
+end;
+
+function TServiceStatistics.MeanBlockage: Double;
+begin
+  if TotalTime = 0 then
+    Result := 0
+  else
+    Result := SumBlockage / TotalTime;
+end;
+
+procedure TServiceStatistics.Start(NewTime: Double);
+var
+  dt : Double;
+begin
+  dt := NewTime - LastTime;
+  if dt < 0 then
+    dt := 0;
+  if dt > 0 then
+  begin
+    SumX := SumX + LastUtil * dt;
+    SumX_2 := SumX_2 + Sqr(LastUtil) * dt;
+    if LastUtil > FMaxBusy then
+      FMaxBusy := LastUtil
+    else if LastUtil < FMinBusy then
+      FMinBusy := LastUtil;
+    FTotalTime := FTotalTime + dt;
+    LastTime := NewTime;
+  end;
+  Inc(LastUtil);
+  if LastUtil = 1 then
+  begin
+    dt := NewTime - LastIdleStart;
+    if LastBusyTime = 0 then
+      LastIdleTime := LastIdleTime + dt
+    else
+      LastIdleTime := dt;
+    if LastIdleTime > FMaxIdleTime then
+      FMaxIdleTime := LastIdleTime;
+    LastBusyStart := NewTime;
+  end;
+end;
+
+procedure TServiceStatistics.Start;
+begin
+  Start((CurrentProc as TProcess).SimTime);
+end;
+
+procedure TServiceStatistics.StartBlock(NewTime: Double);
+var
+  dt : Double;
+begin
+  dt := NewTime - LastBlockTime;
+  if dt < 0 then
+    dt := 0;
+  if dt > 0 then
+  begin
+    SumBlockage := SumBlockage + dt * LastBlockage;
+    LastBlockTime := NewTime;
+  end;
+  Inc(LastBlockage);
+end;
+
+procedure TServiceStatistics.StartBlock;
+begin
+  StartBlock((CurrentProc as TProcess).SimTime);
+end;
+
+procedure TServiceStatistics.StopStat(NewTime: Double);
+var
+  dt : Double;
+begin
+  dt := NewTime - LastTime;
+  if dt < 0 then
+    Exit;
+  if dt > 0 then
+  begin
+    SumX := SumX + LastUtil * dt;
+    SumX_2 := SumX_2 + Sqr(LastUtil) * dt;
+    if LastUtil > FMaxBusy then
+      FMaxBusy := LastUtil
+    else if LastUtil < FMinBusy then
+      FMinBusy := LastUtil;
+    FTotalTime := FTotalTime + dt;
+    dt := NewTime - LastBlockTime;
+    SumBlockage := SumBlockage + dt * LastBlockage;
+    LastTime := NewTime;
+    LastBlockTime := NewTime;
+  end;
+  if LastUtil = 0 then
+  begin
+    dt := NewTime - LastIdleStart;
+    if LastBusyTime = 0 then
+      LastIdleTime := LastIdleTime + dt
+    else
+      LastIdleTime := dt;
+    if LastIdleTime > FMaxIdleTime then
+      FMaxIdleTime := LastIdleTime;
+    LastBusyTime := 0;
+    LastIdleStart := NewTime;
+  end
+  else
+  begin
+    dt := NewTime - LastBusyStart;
+    if LastIdleTime = 0 then
+      LastBusyTime := LastBusyTime + dt
+    else
+      LastBusyTime := dt;
+    if LastBusyTime > FMaxBusyTime then
+      FMaxBusyTime := LastBusyTime;
+    LastIdleTime := 0;
+    LastBusyStart := NewTime;
+  end;
+end;
+
+procedure TServiceStatistics.StopStat;
+begin
+  StopStat((CurrentProc as TProcess).SimTime);
+end;
+
+procedure WriteStat(Header : string; Stat : TStatistics);
+begin
+  WriteLn(Header);
+  WriteLn('Average = ', Stat.Mean : 6 : 3, ' +- ', Stat.Deviation : 6 : 3);
+  WriteLn('Min = ', Stat.Min : 6 : 3, ', max = ', Stat.Max : 6 : 3);
+  WriteLn('Total = ', Stat.Count : 4, ' values');
+end;
+
+procedure WriteStat(Header : string; Stat : TIntervalStatistics);
+begin
+  WriteLn(Header);
+  WriteLn('Average = ', Stat.Mean : 6 : 3, ' +- ', Stat.Deviation : 6 : 3);
+  WriteLn('Min = ', Stat.Min : 6 : 3, ', max = ', Stat.Max : 6 : 3);
+  WriteLn('Total = ', Stat.TotalTime : 6 : 3, ' time units, current value = ',
+      Stat.LastX : 6 : 3);
+end;
+
+procedure WriteStat(Header : string; Stat : TTimeBetStatistics);
+begin
+  WriteLn(Header);
+  WriteLn('Average = ', Stat.Mean : 6 : 3, ' +- ', Stat.Deviation : 6 : 3);
+  WriteLn('Min = ', Stat.Min : 6 : 3, ', max = ', Stat.Max : 6 : 3);
+  WriteLn('Total = ', Stat.Count : 4, ' values');
+end;
+
+procedure WriteStat(Header : string; Stat : TActionStatistics);
+begin
+  WriteLn(Header);
+  WriteLn('Average = ', Stat.Mean : 6 : 3, ' +- ', Stat.Deviation : 6 : 3);
+  WriteLn('Max = ', Stat.Max : 4);
+  WriteLn('Current running = ', Stat.Running : 4, ', completed = ',
+      Stat.Finished : 4);
+end;
+
+procedure WriteStat(Header : string; Stat : TServiceStatistics);
+begin
+  WriteLn(Header);
+  WriteLn('Device count = ', Stat.Devices : 4);
+  WriteLn('Average usage = ', Stat.Mean : 6 : 3, ' +- ', Stat.Deviation : 6 : 3);
+  WriteLn('Current running = ', Stat.Running : 4, ', completed = ',
+      Stat.Finished : 4);
+  WriteLn('Average blockage = ', Stat.MeanBlockage : 6 : 3);
+  if Stat.Devices = 1 then
+    WriteLn('Max idle time = ', Stat.MaxIdleTime : 6 : 3,
+        ', max busy time = ', Stat.MaxBusyTime : 6 : 3)
+  else
+    WriteLn('Max idle devices = ', Stat.Devices - Stat.MinBusy : 4,
+        ', max busy devices = ', Stat.MaxBusy : 4);
+end;
+
+procedure WriteStat(Header : string; Queue : TList);
+begin
+  WriteLn(Header);
+  WriteLn('Average length = ', Queue.LengthStat.Mean : 6 : 3, ' +- ',
+      Queue.LengthStat.Deviation : 6 : 3);
+  WriteLn('Max = ', Queue.LengthStat.Max : 2 : 0, ', current = ',
+      Queue.Size : 2);
+  WriteLn('Average waiting time = ', Queue.WaitStat.Mean : 6 : 3);
+end;
+
+procedure WriteStat(Header : string; Res : TResource);
+begin
+  WriteLn(Header);
+  WriteLn('Current capacity = ', Res.Capacity);
+  WriteLn('Utilization = ', Res.BusyStat.Mean : 6 : 3, ' +- ',
+      Res.BusyStat.Deviation : 6 : 3);
+  WriteLn('Max utilization = ', Res.BusyStat.Max : 3 : 0, ', current = ',
+      Res.Busy);
+  WriteLn('Current available = ', Res.Available, ', average = ',
+      Res.AvailStat.Mean : 6 : 3);
+  WriteLn('Min available = ', Res.AvailStat.Min : 3 : 0, ', max = ',
+    Res.AvailStat.Max : 3 : 0);
+end;
+
+procedure WriteStat(Header : string; Gate : TGate);
+begin
+  WriteLn(Header);
+  if Gate.State then
+    WriteLn('Current state = OPEN, open percentage = ', Gate.Stat.Mean : 6 : 3)
+  else
+    WriteLn('Current state = CLOSED, open percentage = ',
+        Gate.Stat.Mean : 6 : 3);
+end;
+
+procedure WriteHist(Header : string; Hist : THistogram);
+var
+  i, j, pctCount, cumCount : Integer;
+  strGraph : string;
+begin
+  WriteLn(Header);
+  cumCount := Round(Hist.CumulativePercent[0] * 40) - 1;
+  pctCount := Round(Hist.Percent[0] * 40);
+  strGraph := '';
+  for j := 1 to cumCount do
+    strGraph := strGraph + ' ';
+  if cumCount >= 0 then
+    strGraph := strGraph + 'O';
+  for j := 1 to pctCount do
+    strGraph[j] := '*';
+  WriteLn(' -INF - ', Hist.UpperBound[0] : 5 : 2, ' : ', Hist.Count[0] : 3,
+      ' (', Hist.Percent[0] * 100 : 5 : 2, '%), ',
+      Hist.CumulativePercent[0] * 100 : 6 : 2, '% ', strGraph);
+  for i := 1 to Hist.IntervalCount do
+  begin
+    cumCount := Round(Hist.CumulativePercent[i] * 40) - 1;
+    pctCount := Round(Hist.Percent[i] * 40);
+    strGraph := '';
+    for j := 1 to cumCount do
+      strGraph := strGraph + ' ';
+    if cumCount >= 0 then
+      strGraph := strGraph + 'O';
+    for j := 1 to pctCount do
+      strGraph[j] := '*';
+    WriteLn(Hist.LowerBound[i] : 5 : 2, ' - ',
+        Hist.UpperBound[i] : 5 : 2, ' : ', Hist.Count[i] : 3,
+        ' (', Hist.Percent[i] * 100 : 5 : 2, '%), ',
+        Hist.CumulativePercent[i] * 100 : 6 : 2, '% ', strGraph);
+  end;
+  cumCount := Round(Hist.CumulativePercent[Hist.IntervalCount + 1] * 40) - 1;
+  pctCount := Round(Hist.Percent[Hist.IntervalCount + 1] * 40);
+  strGraph := '';
+  for j := 1 to cumCount do
+    strGraph := strGraph + ' ';
+  if cumCount >= 0 then
+    strGraph := strGraph + 'O';
+  for j := 1 to pctCount do
+    strGraph[j] := '*';
+  WriteLn(Hist.LowerBound[Hist.IntervalCount + 1] : 5 : 2,
+      ' -  +INF : ', Hist.Count[Hist.IntervalCount + 1] : 3,
+      ' (', Hist.Percent[Hist.IntervalCount + 1] * 100 : 5 : 2, '%), ',
+      Hist.CumulativePercent[Hist.IntervalCount + 1] * 100 : 6 : 2, '% ',
+      strGraph);
+end;
+
+{ TResource }
+
+procedure TResource.Add(cnt: Integer; NewTime: Double);
+begin
+  FCapacity := FCapacity + cnt;
+  if FBusy >= FCapacity then
+    AvailStat.AddData(0, NewTime)
+  else
+    AvailStat.AddData(FCapacity - FBusy, NewTime);
+end;
+
+procedure TResource.Add(cnt: Integer);
+begin
+  FCapacity := FCapacity + cnt;
+  if FBusy >= FCapacity then
+    AvailStat.AddData(0, CurrentSim.SimTime)
+  else
+    AvailStat.AddData(FCapacity - FBusy, CurrentSim.SimTime);
+end;
+
+procedure TResource.Add;
+begin
+  Inc(FCapacity);
+  if FBusy >= FCapacity then
+    AvailStat.AddData(0, CurrentSim.SimTime)
+  else
+    AvailStat.AddData(FCapacity - FBusy, CurrentSim.SimTime);
+end;
+
+function TResource.Available: Integer;
+begin
+  if FBusy >= FCapacity then
+    Result := 0
+  else
+    Result := FCapacity - FBusy;
+end;
+
+constructor TResource.Create(InitCap, InitBusy, QueCnt: Integer;
+  StartTime: Double);
+var
+  i : Integer;
+begin
+  FCapacity := InitCap;
+  FBusy := InitBusy;
+  FQueueCount := QueCnt;
+  SetLength(FQueue, QueCnt);
+  for i := 0 to QueCnt - 1 do
+    FQueue[i] := TList.Create(StartTime);
+  FAvailStat := TIntervalStatistics.Create(FCapacity - FBusy,
+      StartTime);
+  FBusyStat := TIntervalStatistics.Create(FBusy, StartTime);
+  FPriority := nil;
+end;
+
+constructor TResource.Create(InitCap, InitBusy, QueCnt: Integer;
+  PriorFunc: TCompareFunc);
+var
+  i : Integer;
+begin
+  FCapacity := InitCap;
+  FBusy := InitBusy;
+  FQueueCount := QueCnt;
+  SetLength(FQueue, QueCnt);
+  for i := 0 to QueCnt - 1 do
+    FQueue[i] := TList.Create(CurrentSim.SimTime);
+  FAvailStat := TIntervalStatistics.Create(FCapacity - FBusy,
+      CurrentSim.SimTime);
+  FBusyStat := TIntervalStatistics.Create(FBusy, CurrentSim.SimTime);
+  FPriority := PriorFunc;
+end;
+
+constructor TResource.Create(InitCap: Integer; StartTime: Double);
+begin
+  FCapacity := InitCap;
+  FBusy := 0;
+  FQueueCount := 1;
+  SetLength(FQueue, 1);
+  FQueue[0] := TList.Create(StartTime);
+  FAvailStat := TIntervalStatistics.Create(FCapacity - FBusy,
+      StartTime);
+  FBusyStat := TIntervalStatistics.Create(FBusy, StartTime);
+  FPriority := nil;
+end;
+
+constructor TResource.Create(InitCap, InitBusy, QueCnt: Integer;
+  StartTime: Double; PriorFunc: TCompareFunc);
+var
+  i : Integer;
+begin
+  FCapacity := InitCap;
+  FBusy := InitBusy;
+  FQueueCount := QueCnt;
+  SetLength(FQueue, QueCnt);
+  for i := 0 to QueCnt - 1 do
+    FQueue[i] := TList.Create(StartTime);
+  FAvailStat := TIntervalStatistics.Create(FCapacity - FBusy,
+      StartTime);
+  FBusyStat := TIntervalStatistics.Create(FBusy, StartTime);
+  FPriority := PriorFunc;
+end;
+
+constructor TResource.Create(InitCap, InitBusy, QueCnt: Integer);
+var
+  i : Integer;
+begin
+  FCapacity := InitCap;
+  FBusy := InitBusy;
+  FQueueCount := QueCnt;
+  SetLength(FQueue, QueCnt);
+  for i := 0 to QueCnt - 1 do
+    FQueue[i] := TList.Create(CurrentSim.SimTime);
+  FAvailStat := TIntervalStatistics.Create(FCapacity - FBusy,
+      CurrentSim.SimTime);
+  FBusyStat := TIntervalStatistics.Create(FBusy, CurrentSim.SimTime);
+  FPriority := nil;
+end;
+
+constructor TResource.Create(InitCap: Integer; StartTime: Double;
+  PriorFunc: TCompareFunc);
+begin
+  FCapacity := InitCap;
+  FBusy := 0;
+  FQueueCount := 1;
+  SetLength(FQueue, 1);
+  FQueue[0] := TList.Create(StartTime);
+  FAvailStat := TIntervalStatistics.Create(FCapacity - FBusy,
+      StartTime);
+  FBusyStat := TIntervalStatistics.Create(FBusy, StartTime);
+  FPriority := PriorFunc;
+end;
+
+constructor TResource.Create;
+begin
+  FCapacity := 1;
+  FBusy := 0;
+  FQueueCount := 1;
+  SetLength(FQueue, 1);
+  FQueue[0] := TList.Create(CurrentSim.SimTime);
+  FAvailStat := TIntervalStatistics.Create(FCapacity - FBusy,
+      CurrentSim.SimTime);
+  FBusyStat := TIntervalStatistics.Create(FBusy, CurrentSim.SimTime);
+  FPriority := nil;
+end;
+
+procedure TResource.ClearStat(NewTime: Double);
+var
+  i : Integer;
+begin
+  FAvailStat.Clear(NewTime);
+  FBusyStat.Clear(NewTime);
+  for i := 0 to FQueueCount - 1 do
+    FQueue[i].ClearStat(NewTime);
+end;
+
+procedure TResource.ClearStat;
+var
+  i : Integer;
+begin
+  FAvailStat.Clear(CurrentSim.SimTime);
+  FBusyStat.Clear(CurrentSim.SimTime);
+  for i := 0 to FQueueCount - 1 do
+    FQueue[i].ClearStat(CurrentSim.SimTime);
+end;
+
+constructor TResource.Create(PriorFunc: TCompareFunc);
+begin
+  FCapacity := 1;
+  FBusy := 0;
+  FQueueCount := 1;
+  SetLength(FQueue, 1);
+  FQueue[0] := TList.Create(CurrentSim.SimTime);
+  FAvailStat := TIntervalStatistics.Create(FCapacity - FBusy,
+      CurrentSim.SimTime);
+  FBusyStat := TIntervalStatistics.Create(FBusy, CurrentSim.SimTime);
+  FPriority := PriorFunc;
+end;
+
+constructor TResource.Create(InitCap: Integer);
+begin
+  FCapacity := InitCap;
+  FBusy := 0;
+  FQueueCount := 1;
+  SetLength(FQueue, 1);
+  FQueue[0] := TList.Create(CurrentSim.SimTime);
+  FAvailStat := TIntervalStatistics.Create(FCapacity - FBusy,
+      CurrentSim.SimTime);
+  FBusyStat := TIntervalStatistics.Create(FBusy, CurrentSim.SimTime);
+  FPriority := nil;
+end;
+
+constructor TResource.Create(InitCap: Integer;
+  PriorFunc: TCompareFunc);
+begin
+  FCapacity := InitCap;
+  FBusy := 0;
+  FQueueCount := 1;
+  SetLength(FQueue, 1);
+  FQueue[0] := TList.Create(CurrentSim.SimTime);
+  FAvailStat := TIntervalStatistics.Create(FCapacity - FBusy,
+      CurrentSim.SimTime);
+  FBusyStat := TIntervalStatistics.Create(FBusy, CurrentSim.SimTime);
+  FPriority := PriorFunc;
+end;
+
+destructor TResource.Destroy;
+var
+  i : Integer;
+begin
+  for i := 0 to FQueueCount - 1 do
+    Queue[i].Free;
+  AvailStat.Free;
+  BusyStat.Free;
+  inherited;
+end;
+
+function TResource.Get(cnt: Integer; NewTime: Double): Boolean;
+begin
+  if cnt <= 0 then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if Available >= cnt then
+  begin
+    Inc(FBusy, cnt);
+    AvailStat.AddData(FCapacity - FBusy, NewTime);
+    BusyStat.AddData(FBusy, NewTime);
+    Result := True;
+  end
+  else
+    Result := False;
+end;
+
+function TResource.Get(cnt: Integer): Boolean;
+begin
+  if cnt <= 0 then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if Available >= cnt then
+  begin
+    Inc(FBusy, cnt);
+    AvailStat.AddData(FCapacity - FBusy, CurrentSim.SimTime);
+    BusyStat.AddData(FBusy, CurrentSim.SimTime);
+    Result := True;
+  end
+  else
+    Result := False;
+end;
+
+function TResource.Get: Boolean;
+begin
+  if Available >= 1 then
+  begin
+    Inc(FBusy);
+    AvailStat.AddData(FCapacity - FBusy, CurrentSim.SimTime);
+    BusyStat.AddData(FBusy, CurrentSim.SimTime);
+    Result := True;
+  end
+  else
+    Result := False;
+end;
+
+function TResource.GetQueue(Index: Integer): TList;
+begin
+  Result := FQueue[Index];
+end;
+
+function TResource.PreemptedProcs(Index: Integer): Integer;
+var
+  i : Integer;
+  Proc : TProcess;
+begin
+  i := 0;
+  Proc := Queue[Index].First as TProcess;
+  while (Proc <> nil) and (Proc.TimeLeft > 0) do
+  begin
+    Inc(i);
+    Proc := Proc.Next as TProcess;
+  end;
+  Result := i;
+end;
+
+function TResource.PreemptedProcs: Integer;
+var
+  i : Integer;
+  Proc : TProcess;
+begin
+  i := 0;
+  Proc := Queue[0].First as TProcess;
+  while (Proc <> nil) and (Proc.TimeLeft > 0) do
+  begin
+    Inc(i);
+    Proc := Proc.Next as TProcess;
+  end;
+  Result := i;
+end;
+
+procedure TResource.Release(cnt: Integer; NewTime: Double);
+begin
+  if cnt <= 0 then
+    Exit;
+  Dec(FBusy, cnt);
+  BusyStat.AddData(FBusy, NewTime);
+  if FCapacity > FBusy then
+    AvailStat.AddData(FCapacity - FBusy, NewTime);
+end;
+
+procedure TResource.Release(cnt: Integer);
+begin
+  if cnt <= 0 then
+    Exit;
+  Dec(FBusy, cnt);
+  BusyStat.AddData(FBusy, CurrentSim.SimTime);
+  if FCapacity > FBusy then
+    AvailStat.AddData(FCapacity - FBusy, CurrentSim.SimTime);
+end;
+
+procedure TResource.Release;
+begin
+  Dec(FBusy);
+  BusyStat.AddData(FBusy, CurrentSim.SimTime);
+  if FCapacity > FBusy then
+    AvailStat.AddData(FCapacity - FBusy, CurrentSim.SimTime);
+end;
+
+procedure TResource.StopStat(NewTime: Double);
+var
+  i : Integer;
+begin
+  AvailStat.StopStat(NewTime);
+  BusyStat.StopStat(NewTime);
+  for i := 0 to FQueueCount - 1 do
+    Queue[i].StopStat(NewTime);
+end;
+
+procedure TResource.StopStat;
+var
+  i : Integer;
+begin
+  AvailStat.StopStat(CurrentSim.SimTime);
+  BusyStat.StopStat(CurrentSim.SimTime);
+  for i := 0 to FQueueCount - 1 do
+    Queue[i].StopStat(CurrentSim.SimTime);
+end;
+
+procedure TResource.Sub(cnt: Integer; NewTime: Double);
+begin
+  Add(-cnt, NewTime);
+end;
+
+procedure TResource.Sub(cnt: Integer);
+begin
+  Add(-cnt);
+end;
+
+procedure TResource.Sub;
+begin
+  Add(-1);
+end;
+
+{ TGate }
+
+procedure TGate.ClearStat(NewTime: Double);
+begin
+  Stat.Clear(NewTime);
+  Queue.ClearStat(NewTime);
+end;
+
+procedure TGate.ClearStat;
+begin
+  Stat.Clear(CurrentSim.SimTime);
+  Queue.ClearStat(CurrentSim.SimTime);
+end;
+
+procedure TGate.Close(NewTime: Double);
+begin
+  FState := False;
+  Stat.AddData(0, NewTime);
+end;
+
+procedure TGate.Close;
+begin
+  Close(CurrentSim.SimTime);
+end;
+
+constructor TGate.Create(InitState: Boolean; StartTime: Double);
+begin
+  FState := InitState;
+  FQueue := TList.Create(StartTime);
+  if FState then
+    FStat := TIntervalStatistics.Create(1, StartTime)
+  else
+    FStat := TIntervalStatistics.Create(0, StartTime);
+end;
+
+constructor TGate.Create(InitState: Boolean);
+var
+  StartTime : Double;
+begin
+  FState := InitState;
+  StartTime := CurrentSim.SimTime;
+  FQueue := TList.Create(StartTime);
+  if FState then
+    FStat := TIntervalStatistics.Create(1, StartTime)
+  else
+    FStat := TIntervalStatistics.Create(0, StartTime);
+end;
+
+constructor TGate.Create;
+var
+  StartTime : Double;
+begin
+  FState := False;
+  StartTime := CurrentSim.SimTime;
+  FQueue := TList.Create(StartTime);
+  FStat := TIntervalStatistics.Create(0, StartTime);
+end;
+
+destructor TGate.Destroy;
+begin
+  Queue.Free;
+  Stat.Free;
+  inherited;
+end;
+
+procedure TGate.Open(NewTime: Double);
+begin
+  FState := True;
+  Stat.AddData(1, NewTime);
+end;
+
+procedure TGate.Open;
+begin
+  Open(CurrentSim.SimTime);
+end;
+
+procedure TProcess.WaitGate(Gate: TGate);
+begin
+  Insert(Gate.Queue);
+  while not Gate.State do
+    Passivate;
+  StartRunning;
+end;
+
+procedure TGate.StopStat(NewTime: Double);
+begin
+  Stat.StopStat(NewTime);
+  Queue.StopStat(NewTime);
+end;
+
+procedure TGate.StopStat;
+begin
+  Stat.StopStat(CurrentSim.SimTime);
+  Queue.StopStat(CurrentSim.SimTime);
+end;
+
+{ TVisualizator }
+
+constructor TVisualizator.Create(dt: Double);
+begin
+  DeltaT := dt;
+  inherited Create;
+end;
+
+procedure TVisualizator.RunProcess;
+begin
+  while True do
+  begin
+    Hold(DeltaT);
+    SwitchTo(nil);
+  end;
+end;
+
+procedure TSimulation.MakeVisualizator(dt: Double);
+begin
+  if Visualizator = nil then
+    Visualizator := TVisualizator.Create(dt)
+  else
+    Visualizator.DeltaT := dt;
+end;
+
+procedure RunSimulation(sim : TSimulation);
+begin
+  SwitchTo(sim.Visualizator);
+end;
+
+function Chars(Count : Integer; Ch : Char) : string;
+var
+  s : string;
+  i : Integer;
+begin
+  s := '';
+  for i := 1 to Count do
+    s := s + ch;
+  Result := s;
+end;
+
+function Min(a, b : Double) : Double;
+begin
+  if a < b then
+    Result := a
+  else
+    Result := b;
+end;
+
+function Max(a, b : Double) : Double;
+begin
+  if a > b then
+    Result := a
+  else
+    Result := b;
+end;
+
+function Min(a, b : Integer) : Integer;
+begin
+  if a < b then
+    Result := a
+  else
+    Result := b;
+end;
+
+function Max(a, b : Integer) : Integer;
+begin
+  if a > b then
+    Result := a
+  else
+    Result := b;
+end;
+
+{ TArrayHistogram }
+
+procedure TArrayHistogram.AddData(d: Double);
+begin
+  Inc(Data[IntervalIndex(d)]);
+  Inc(FTotalCount);
+end;
+
+procedure TArrayHistogram.Clear;
+var
+  i : Integer;
+begin
+  for i := 0 to FIntervalCount + 1 do
+    Data[i] := 0;
+end;
+
+constructor TArrayHistogram.Create(ABounds: array of Double);
+var
+  i : Integer;
+begin
+  FIntervalCount := Length(ABounds) - 1;
+  // Проверить упорядоченность массива данных
+  for i := 0 to FIntervalCount - 1 do
+    if ABounds[i] > ABounds[i + 1] then
+      raise ESimulationException.Create('Array histogram bounds not ordered');
+  SetLength(Bounds, Length(ABounds));
+  for i := 0 to FIntervalCount do
+    Bounds[i] := ABounds[i];
+  SetLength(Data, FIntervalCount + 2);
+  for i := 0 to FIntervalCount + 1 do
+    Data[i] := 0;
+end;
+
+function TArrayHistogram.GetCount(i: Integer): Integer;
+begin
+  if i <= 0 then
+    Result := Data[0]
+  else if i > FIntervalCount then
+    Result := Data[FIntervalCount + 1]
+  else
+    Result := Data[i];
+end;
+
+function TArrayHistogram.GetCumulativeCount(i: Integer): Integer;
+var
+  j, Sum : Integer;
+begin
+  Sum := 0;
+  for j := 0 to i do
+    if j <= FIntervalCount + 1 then
+      Sum := Sum + Data[j];
+  Result := Sum;
+end;
+
+function TArrayHistogram.GetCumulativePercent(i: Integer): Double;
+begin
+  Result := GetCumulativeCount(i) / FTotalCount;
+end;
+
+function TArrayHistogram.GetIntervalCount: Integer;
+begin
+  Result := FIntervalCount;
+end;
+
+function TArrayHistogram.GetLowerBound(i: Integer): Double;
+begin
+  if i <= 0 then
+    Result := -1e300
+  else if i >= FIntervalCount + 1 then
+    Result := Bounds[FIntervalCount]
+  else
+    Result := Bounds[i - 1];
+end;
+
+function TArrayHistogram.GetPercent(i: Integer): Double;
+begin
+  Result := GetCount(i) / FTotalCount;
+end;
+
+function TArrayHistogram.GetUpperBound(i: Integer): Double;
+begin
+  if i <= 0 then
+    Result := Bounds[0]
+  else if i >= FIntervalCount + 1 then
+    Result := 1e300
+  else
+    Result := Bounds[i];
+end;
+
+function TArrayHistogram.IntervalIndex(Value: Double): Integer;
+var
+  L, R, M : Integer;
+begin
+  L := 0;
+  R := FIntervalCount;
+  while L < R do
+  begin
+    M := (L + R) div 2;
+    if Value > Bounds[M] then
+      L := M + 1
+    else
+      R := M;
+  end;
+  if Value = Bounds[L] then
+    Result := L + 1
+  else
+    Result := L;
+end;
+
+// Изменить число интервалов невозможно,
+//   оно задается массивом при построении
+procedure TArrayHistogram.SetIntervalCount(NewCount: Integer);
+begin
+  raise ESimulationException.Create(
+      'Cannot change array histogram interval count');
+end;
+
+// Изменить границы интервалов невозможно,
+//   они задаются массивом при построении
+procedure TArrayHistogram.SetLowerBound(i: Integer; Value: Double);
+begin
+  raise ESimulationException.Create(
+      'Cannot change array histogram bounds');
+end;
+
+procedure TArrayHistogram.SetUpperBound(i: Integer; Value: Double);
+begin
+  raise ESimulationException.Create(
+      'Cannot change array histogram bounds');
+end;
+
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Stat : array of TStatistics);
+var
+  i : Integer;
+begin
+  Grid.RowCount := Length(Stat) + 1;
+  Grid.ColCount := 6;
+  Grid.FixedCols := 1;
+  Grid.FixedRows := 1;
+  Grid.Cells[0, 0] := 'Переменная';
+  Grid.Cells[1, 0] := 'Среднее';
+  Grid.Cells[2, 0] := 'Отклонение';
+  Grid.Cells[3, 0] := 'Минимум';
+  Grid.Cells[4, 0] := 'Максимум';
+  Grid.Cells[5, 0] := 'Количество';
+  for i := 0 to Length(Stat) - 1 do
+  begin
+    if i < Length(Headers) then
+      Grid.Cells[0, i + 1] := Headers[i];
+    Grid.Cells[1, i + 1] := Format('%5.4f', [Stat[i].Mean]);
+    Grid.Cells[2, i + 1] := Format('%5.4f', [Stat[i].Deviation]);
+    Grid.Cells[3, i + 1] := Format('%5.4f', [Stat[i].Min]);
+    Grid.Cells[4, i + 1] := Format('%5.4f', [Stat[i].Max]);
+    Grid.Cells[5, i + 1] := Format('%d', [Stat[i].Count]);
+  end;
+end;
+
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Stat : array of TIntervalStatistics);
+var
+  i : Integer;
+begin
+  Grid.RowCount := Length(Stat) + 1;
+  Grid.ColCount := 7;
+  Grid.FixedCols := 1;
+  Grid.FixedRows := 1;
+  Grid.Cells[0, 0] := 'Переменная';
+  Grid.Cells[1, 0] := 'Среднее';
+  Grid.Cells[2, 0] := 'Отклонение';
+  Grid.Cells[3, 0] := 'Минимум';
+  Grid.Cells[4, 0] := 'Максимум';
+  Grid.Cells[5, 0] := 'Интервал';
+  Grid.Cells[6, 0] := 'Сейчас';
+  for i := 0 to Length(Stat) - 1 do
+  begin
+    if i < Length(Headers) then
+      Grid.Cells[0, i + 1] := Headers[i];
+    Grid.Cells[1, i + 1] := Format('%.4f', [Stat[i].Mean]);
+    Grid.Cells[2, i + 1] := Format('%.4f', [Stat[i].Deviation]);
+    Grid.Cells[3, i + 1] := Format('%.4f', [Stat[i].Min]);
+    Grid.Cells[4, i + 1] := Format('%.4f', [Stat[i].Max]);
+    Grid.Cells[5, i + 1] := Format('%.4f', [Stat[i].TotalTime]);
+    Grid.Cells[6, i + 1] := Format('%.4f', [Stat[i].LastX]);
+  end;
+end;
+
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Stat : array of TTimeBetStatistics);
+var
+  i : Integer;
+begin
+  Grid.RowCount := Length(Stat) + 1;
+  Grid.ColCount := 6;
+  Grid.FixedCols := 1;
+  Grid.FixedRows := 1;
+  Grid.Cells[0, 0] := 'Переменная';
+  Grid.Cells[1, 0] := 'Среднее';
+  Grid.Cells[2, 0] := 'Отклонение';
+  Grid.Cells[3, 0] := 'Минимум';
+  Grid.Cells[4, 0] := 'Максимум';
+  Grid.Cells[5, 0] := 'Количество';
+  for i := 0 to Length(Stat) - 1 do
+  begin
+    if i < Length(Headers) then
+      Grid.Cells[0, i + 1] := Headers[i];
+    Grid.Cells[1, i + 1] := Format('%5.4f', [Stat[i].Mean]);
+    Grid.Cells[2, i + 1] := Format('%5.4f', [Stat[i].Deviation]);
+    Grid.Cells[3, i + 1] := Format('%5.4f', [Stat[i].Min]);
+    Grid.Cells[4, i + 1] := Format('%5.4f', [Stat[i].Max]);
+    Grid.Cells[5, i + 1] := Format('%d', [Stat[i].Count]);
+  end;
+end;
+
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Stat : array of TActionStatistics);
+var
+  i : Integer;
+begin
+  Grid.RowCount := Length(Stat) + 1;
+  Grid.ColCount := 6;
+  Grid.FixedCols := 1;
+  Grid.FixedRows := 1;
+  Grid.Cells[0, 0] := 'Действие';
+  Grid.Cells[1, 0] := 'Среднее';
+  Grid.Cells[2, 0] := 'Отклонение';
+  Grid.Cells[3, 0] := 'Максимум';
+  Grid.Cells[4, 0] := 'Сейчас';
+  Grid.Cells[5, 0] := 'Выполнено';
+  for i := 0 to Length(Stat) - 1 do
+  begin
+    if i < Length(Headers) then
+      Grid.Cells[0, i + 1] := Headers[i];
+    Grid.Cells[1, i + 1] := Format('%5.4f', [Stat[i].Mean]);
+    Grid.Cells[2, i + 1] := Format('%5.4f', [Stat[i].Deviation]);
+    Grid.Cells[3, i + 1] := Format('%d', [Stat[i].Max]);
+    Grid.Cells[4, i + 1] := Format('%d', [Stat[i].LastX]);
+    Grid.Cells[5, i + 1] := Format('%d', [Stat[i].Finished]);
+  end;
+end;
+
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Stat : array of TServiceStatistics);
+var
+  i : Integer;
+begin
+  Grid.RowCount := Length(Stat) + 1;
+  Grid.ColCount := 9;
+  Grid.FixedCols := 1;
+  Grid.FixedRows := 1;
+  Grid.Cells[0, 0] := 'Действие';
+  Grid.Cells[1, 0] := 'Количество';
+  Grid.Cells[2, 0] := 'Среднее';
+  Grid.Cells[3, 0] := 'Отклонение';
+  Grid.Cells[4, 0] := 'Сейчас';
+  Grid.Cells[5, 0] := 'Ср. блок./простой';
+  Grid.Cells[6, 0] := 'Макс. простой';
+  Grid.Cells[7, 0] := 'Макс. работа';
+  Grid.Cells[8, 0] := 'Выполнено';
+  for i := 0 to Length(Stat) - 1 do
+  begin
+    if i < Length(Headers) then
+      Grid.Cells[0, i + 1] := Headers[i];
+    Grid.Cells[1, i + 1] := Format('%d', [Stat[i].Devices]);
+    Grid.Cells[2, i + 1] := Format('%5.4f', [Stat[i].Mean]);
+    Grid.Cells[3, i + 1] := Format('%5.4f', [Stat[i].Deviation]);
+    Grid.Cells[4, i + 1] := Format('%d', [Stat[i].LastUtil]);
+    Grid.Cells[5, i + 1] := Format('%5.4f', [Stat[i].MeanBlockage]);
+    if Stat[i].Devices > 1 then
+      Grid.Cells[6, i + 1] := Format('%d', [Stat[i].Devices - Stat[i].MinBusy])
+    else
+      Grid.Cells[6, i + 1] := Format('%5.4f', [Stat[i].MaxIdleTime]);
+    if Stat[i].Devices > 1 then
+      Grid.Cells[7, i + 1] := Format('%d', [Stat[i].MaxBusy])
+    else
+      Grid.Cells[7, i + 1] := Format('%5.4f', [Stat[i].MaxBusyTime]);
+    Grid.Cells[8, i + 1] := Format('%d', [Stat[i].Finished]);
+  end;
+end;
+
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Queue : array of TList);
+var
+  i : Integer;
+begin
+  Grid.RowCount := Length(Queue) + 1;
+  Grid.ColCount := 6;
+  Grid.FixedCols := 1;
+  Grid.FixedRows := 1;
+  Grid.Cells[0, 0] := 'Очередь';
+  Grid.Cells[1, 0] := 'Среднее';
+  Grid.Cells[2, 0] := 'Отклонение';
+  Grid.Cells[3, 0] := 'Максимум';
+  Grid.Cells[4, 0] := 'Сейчас';
+  Grid.Cells[5, 0] := 'Ср. время';
+  for i := 0 to Length(Queue) - 1 do
+  begin
+    if i < Length(Headers) then
+      Grid.Cells[0, i + 1] := Headers[i];
+    Grid.Cells[1, i + 1] := Format('%5.4f', [Queue[i].LengthStat.Mean]);
+    Grid.Cells[2, i + 1] := Format('%5.4f', [Queue[i].LengthStat.Deviation]);
+    Grid.Cells[3, i + 1] := Format('%2.0f', [Queue[i].LengthStat.Max]);
+    Grid.Cells[4, i + 1] := Format('%2.0f', [Queue[i].LengthStat.LastX]);
+    Grid.Cells[5, i + 1] := Format('%5.4f', [Queue[i].WaitStat.Mean]);
+  end;
+end;
+
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Res : array of TResource);
+var
+  i : Integer;
+begin
+  Grid.RowCount := Length(Res) + 1;
+  Grid.ColCount := 10;
+  Grid.FixedCols := 1;
+  Grid.FixedRows := 1;
+  Grid.Cells[0, 0] := 'Ресурс';
+  Grid.Cells[1, 0] := 'Мощность';
+  Grid.Cells[2, 0] := 'Ср. потреб.';
+  Grid.Cells[3, 0] := 'Отклонение';
+  Grid.Cells[4, 0] := 'Макс. потреб.';
+  Grid.Cells[5, 0] := 'Сейчас потреб.';
+  Grid.Cells[6, 0] := 'Сейчас дост.';
+  Grid.Cells[7, 0] := 'Ср. дост.';
+  Grid.Cells[8, 0] := 'Мин. дост.';
+  Grid.Cells[9, 0] := 'Макс. дост.';
+  for i := 0 to Length(Res) - 1 do
+  begin
+    if i < Length(Headers) then
+      Grid.Cells[0, i + 1] := Headers[i];
+    Grid.Cells[1, i + 1] := Format('%d', [Res[i].Capacity]);
+    Grid.Cells[2, i + 1] := Format('%5.4f', [Res[i].BusyStat.Mean]);
+    Grid.Cells[3, i + 1] := Format('%5.4f', [Res[i].BusyStat.Deviation]);
+    Grid.Cells[4, i + 1] := Format('%2.0f', [Res[i].BusyStat.Max]);
+    Grid.Cells[5, i + 1] := Format('%5.4f', [Res[i].BusyStat.LastX]);
+    Grid.Cells[6, i + 1] := Format('%5.4f', [Res[i].AvailStat.LastX]);
+    Grid.Cells[7, i + 1] := Format('%5.4f', [Res[i].AvailStat.Mean]);
+    Grid.Cells[8, i + 1] := Format('%2.0f', [Res[i].AvailStat.Min]);
+    Grid.Cells[9, i + 1] := Format('%2.0f', [Res[i].AvailStat.Max]);
+  end;
+end;
+
+procedure ShowStat(Grid : TStringGrid; const Headers : array of string;
+    const Gate : array of TGate);
+var
+  i : Integer;
+begin
+  Grid.RowCount := Length(Gate) + 1;
+  Grid.ColCount := 3;
+  Grid.FixedCols := 1;
+  Grid.FixedRows := 1;
+  Grid.Cells[0, 0] := 'Затвор';
+  Grid.Cells[1, 0] := 'Сейчас';
+  Grid.Cells[2, 0] := 'Открыт';
+  for i := 0 to Length(Gate) - 1 do
+  begin
+    if i < Length(Headers) then
+      Grid.Cells[0, i + 1] := Headers[i];
+    if Gate[i].State then
+      Grid.Cells[1, i + 1] := 'ОТКРЫТ'
+    else
+      Grid.Cells[1, i + 1] := 'ЗАКРЫТ';
+    Grid.Cells[2, i + 1] := Format('%5.4f', [Gate[i].Stat.Mean]);
+  end;
+end;
+
+procedure DrawHistCell(Grid : TDrawGrid; ACol, ARow : Integer; Rect : TRect;
+    Hist : THistogram);
+var
+  s : string;
+  x : Integer;
+  OldColor : TColor;
+begin
+  if ARow = 0 then
+  begin
+    s := '';
+    case ACol of
+    0 :
+      s := 'От';
+    1 :
+      s := 'До';
+    2 :
+      s := 'Значений';
+    3 :
+      s := 'Процент';
+    4 :
+      s := 'Накопление';
+    5 :
+      s := 'Гистограмма';
+    end;
+    Grid.Canvas.TextOut((Rect.Left + Rect.Right -
+        Grid.Canvas.TextWidth(s)) div 2, Rect.Top + 1, s);
+  end
+  else
+  begin
+    s := '';
+    case ACol of
+    0 :
+      if ARow = 1 then
+        s := '-INF'
+      else
+        s := Format('%.2f', [Hist.LowerBound[ARow - 1]]);
+    1 :
+      if ARow = Hist.IntervalCount + 2 then
+        s := '+INF'
+      else
+        s := Format('%.2f', [Hist.UpperBound[ARow - 1]]);
+    2 :
+      s := Format('%d', [Hist.Count[ARow - 1]]);
+    3 :
+      s := Format('%.2f%%', [Hist.Percent[ARow - 1] * 100]);
+    4 :
+      s := Format('%.2f%%', [Hist.CumulativePercent[ARow - 1] * 100]);
+    end;
+    if ACol < 5 then
+      Grid.Canvas.TextOut(Rect.Right - Grid.Canvas.TextWidth(s) - 2,
+          Rect.Top + 1, s)
+    else
+      with Grid.Canvas do
+      begin
+        x := Round(Hist.Percent[ARow - 1] * (Rect.Right - Rect.Left));
+        OldColor := Brush.Color;
+        Brush.Color := clRed;
+        Rectangle(Rect.Left, Rect.Top, Rect.Left + x, Rect.Bottom);
+        x := Round(Hist.CumulativePercent[ARow - 1] * (Rect.Right - Rect.Left));
+        Brush.Color := clBlue;
+        Ellipse(Rect.Left + x - 5, (Rect.Top + Rect.Bottom) div 2 - 5,
+            Rect.Left + x + 5, (Rect.Top + Rect.Bottom) div 2 + 5);
+        Brush.Color := OldColor;
+        OldColor := Pen.Color;
+        Pen.Width := 3;
+        Pen.Color := clBlue;
+        if (ARow > 1) and (ARow >= Grid.TopRow) then
+        begin
+          if ARow > Grid.TopRow then
+          begin
+            x := Round(Hist.CumulativePercent[ARow - 2] *
+                (Rect.Right - Rect.Left));
+            MoveTo(Rect.Left + x, (Rect.Top * 3 - Rect.Bottom) div 2);
+          end
+          else
+          begin
+            x := Round((Hist.CumulativePercent[ARow - 2] +
+                Hist.CumulativePercent[ARow - 1]) / 2 *
+                (Rect.Right - Rect.Left));
+            MoveTo(Rect.Left + x, Rect.Top);
+          end;
+          x := Round(Hist.CumulativePercent[ARow - 1] *
+              (Rect.Right - Rect.Left));
+          LineTo(Rect.Left + x, (Rect.Top + Rect.Bottom) div 2);
+        end;
+        Pen.Width := 1;
+        Pen.Color := clDkGray;
+        MoveTo((Rect.Left * 3 + Rect.Right) div 4, Rect.Top);
+        LineTo((Rect.Left * 3 + Rect.Right) div 4, Rect.Bottom);
+        MoveTo((Rect.Left + Rect.Right) div 2, Rect.Top);
+        LineTo((Rect.Left + Rect.Right) div 2, Rect.Bottom);
+        MoveTo((Rect.Left + Rect.Right * 3) div 4, Rect.Top);
+        LineTo((Rect.Left + Rect.Right * 3) div 4, Rect.Bottom);
+        Pen.Color := OldColor;
+      end;
+  end;
+end;
+
+{ THandlerEventNotice }
+
+constructor THandlerEventNotice.Create(ETime: Double;
+  AHand: TEventHandler);
+begin
+  inherited Create;
+  Handler := AHAnd;
+  EventTime := ETime;
+end;
+
+destructor THandlerEventNotice.Destroy;
+begin
+  if Handler.Event = Self then
+  begin
+    Handler.Event := nil;
+    Handler.Free;
+  end;
+  inherited;
+end;
+
+{ TEventHandler }
+
+procedure TEventHandler.Activate;
+begin
+  ActivateAfter(Parent.Calendar.First);
+end;
+
+procedure TEventHandler.Activate(Proc: TEventProc);
+begin
+  EventProc := Proc;
+  Activate;
+end;
+
+procedure TEventHandler.ActivateAfter(l : TLink);
+var
+  p : TProcess;
+  h : TEventHandler;
+  en : TBaseEventNotice;
+begin
+  if not Idle and not Event.IsFirst then
+    Exit;
+  if l is TProcess then
+  begin
+    p := l as TProcess;
+    if p.Idle then
+      raise ESimulationException.Create(
+          'Cannot call ActivateAfter(l) after idle process');
+    Event := THandlerEventNotice.Create(p.Event.EventTime, Self);
+    Event.InsertAfter(p.Event);
+  end
+  else if l is TEventHandler then
+  begin
+    h := l as TEventHandler;
+    if h.Idle then
+      raise ESimulationException.Create(
+          'Cannot call ActivateAfter(l) after idle event handler');
+    Event := THandlerEventNotice.Create(h.Event.EventTime, Self);
+    Event.InsertAfter(h.Event);
+  end
+  else if l is TBaseEventNotice then
+  begin
+    en := l as TBaseEventNotice;
+    Event := THandlerEventNotice.Create(en.EventTime, Self);
+    Event.InsertAfter(en);
+  end
+  else
+    raise ESimulationException.Create(
+        'Cannot call ActivateAfter(l) after non-process or event handler');
+end;
+
+procedure TEventHandler.ActivateAfter(l : TLink; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ActivateAfter(l);
+end;
+
+procedure TEventHandler.ActivateAt(t: Double);
+begin
+  if not Idle and not Event.IsFirst then
+    Exit;
+  if t < SimTime then
+    t := SimTime;
+  Event := THandlerEventNotice.Create(t, Self);
+  Event.Insert(Parent.Calendar);
+end;
+
+procedure TEventHandler.ActivateAt(t: Double; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ActivateAt(t);
+end;
+
+procedure TEventHandler.ActivateBefore(l : TLink);
+var
+  p : TProcess;
+  h : TEventHandler;
+  en : TBaseEventNotice;
+begin
+  if not Idle and not Event.IsFirst then
+    Exit;
+  if l is TProcess then
+  begin
+    p := l as TProcess;
+    if p.Idle then
+      raise ESimulationException.Create(
+          'Cannot call ActivateAfter(l) after idle process');
+    Event := THandlerEventNotice.Create(p.Event.EventTime, Self);
+    Event.InsertBefore(p.Event);
+  end
+  else if l is TEventHandler then
+  begin
+    h := l as TEventHandler;
+    if h.Idle then
+      raise ESimulationException.Create(
+          'Cannot call ActivateAfter(l) after idle event handler');
+    Event := THandlerEventNotice.Create(h.Event.EventTime, Self);
+    Event.InsertBefore(h.Event);
+  end
+  else if l is TBaseEventNotice then
+  begin
+    en := l as TBaseEventNotice;
+    Event := THandlerEventNotice.Create(en.EventTime, Self);
+    Event.InsertBefore(en);
+  end;
+end;
+
+procedure TEventHandler.ActivateBefore(l : TLink; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ActivateBefore(l);
+end;
+
+procedure TEventHandler.ActivateDelay(t: Double);
+begin
+  ActivateAt(SimTime + t);
+end;
+
+procedure TEventHandler.ActivateDelay(t: Double; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ActivateDelay(t);
+end;
+
+procedure TEventHandler.ActivatePriorAt(t: Double);
+begin
+  if not Idle and not Event.IsFirst then
+    Exit;
+  if t < SimTime then
+    t := SimTime;
+  Event := THandlerEventNotice.Create(t, Self);
+  Event.InsertPrior(Parent.Calendar);
+end;
+
+procedure TEventHandler.ActivatePriorAt(t: Double; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ActivatePriorAt(t);
+end;
+
+procedure TEventHandler.ActivatePriorDelay(t: Double);
+begin
+  ActivatePriorAt(SimTime + t);
+end;
+
+procedure TEventHandler.ActivatePriorDelay(t: Double; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ActivatePriorDelay(t);
+end;
+
+procedure TEventHandler.ClearFinished;
+begin
+  Parent.FinishedObjects.Clear;
+end;
+
+constructor TEventHandler.Create;
+begin
+  inherited;
+  Event := nil;
+  EventProc := DefaultEventProc;
+  Parent := CurrentSim;
+end;
+
+procedure TEventHandler.DefaultEventProc;
+begin
+
+end;
+
+destructor TEventHandler.Destroy;
+var
+  evt : THandlerEventNotice;
+begin
+  evt := Event;
+  Event := nil;
+  evt.Free;
+  inherited;
+end;
+
+function TEventHandler.EventTime: Double;
+begin
+  if Event <> nil then
+    Result := Event.EventTime
+  else
+    Result := -1e300;
+end;
+
+procedure TEventHandler.Finish;
+begin
+  Insert(Parent.FinishedObjects);
+end;
+
+procedure TEventHandler.GetResource(Res: TResource; Count, Index: Integer);
+begin
+
+end;
+
+function TEventHandler.Idle: Boolean;
+begin
+  Result := (Event = nil);
+end;
+
+function TEventHandler.NextEvent: TBaseEventNotice;
+begin
+  if not Idle then
+    Result := Event.Next as TBaseEventNotice
+  else
+    Result := nil;
+end;
+
+procedure TEventHandler.PreemptResource(Res: TResource; Index: Integer);
+begin
+
+end;
+
+procedure TEventHandler.Reactivate;
+begin
+  ReactivateAfter(Parent.Calendar.First);
+end;
+
+procedure TEventHandler.Reactivate(Proc: TEventProc);
+begin
+  EventProc := Proc;
+  Reactivate;
+end;
+
+procedure TEventHandler.ReactivateAfter(l : TLink);
+var
+  p : TProcess;
+  h : TEventHandler;
+  en : TBaseEventNotice;
+begin
+  // Для текущего и пассивного процессов требуется создание нового события
+  if Idle or Event.IsFirst then
+  begin
+    ActivateAfter(l);
+    Exit;
+  end;
+  if l is TProcess then
+  begin
+    p := l as TProcess;
+    if p.Idle then
+      raise ESimulationException.Create(
+          'Cannot ReactivateAfter(l) after idle process');
+    Event.EventTime := p.Event.EventTime;
+    Event.InsertAfter(p.Event);
+  end
+  else if l is TEventHandler then
+  begin
+    h := l as TEventHandler;
+    if h.Idle then
+      raise ESimulationException.Create(
+          'Cannot ReactivateAfter(l) after idle event handler');
+    Event.EventTime := h.Event.EventTime;
+    Event.InsertAfter(h.Event);
+  end
+  else if l is TBaseEventNotice then
+  begin
+    en := l as TBaseEventNotice;
+    Event.EventTime := en.EventTime;
+    Event.InsertAfter(en);
+  end;
+end;
+
+procedure TEventHandler.ReactivateAfter(l : TLink; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ReactivateAfter(l);
+end;
+
+procedure TEventHandler.ReactivateAt(t: Double);
+begin
+  // Для текущего и пассивного процессов требуется создание нового события
+  if Idle or Event.IsFirst then
+  begin
+    ActivateAt(t);
+    Exit;
+  end;
+  if t < SimTime then
+    t := SimTime;
+  Event.SetTime(t);
+end;
+
+procedure TEventHandler.ReactivateAt(t: Double; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ReactivateAt(0);
+end;
+
+procedure TEventHandler.ReactivateBefore(l : TLink);
+var
+  p : TProcess;
+  h : TEventHandler;
+  en : TBaseEventNotice;
+begin
+  // Для текущего и пассивного процессов требуется создание нового события
+  if Idle or Event.IsFirst then
+  begin
+    ActivateBefore(l);
+    Exit;
+  end;
+  if l is TProcess then
+  begin
+    p := l as TProcess;
+    if p.Idle then
+      raise ESimulationException.Create(
+          'Cannot ReactivateBefore(l) after idle process');
+    Event.EventTime := p.Event.EventTime;
+    Event.InsertBefore(p.Event);
+  end
+  else if l is TEventHandler then
+  begin
+    h := l as TEventHandler;
+    if h.Idle then
+      raise ESimulationException.Create(
+          'Cannot ReactivateBefore(l) after idle event handler');
+    Event.EventTime := h.Event.EventTime;
+    Event.InsertBefore(h.Event);
+  end
+  else if l is TBaseEventNotice then
+  begin
+    en := l as TBaseEventNotice;
+    Event.EventTime := en.EventTime;
+    Event.InsertBefore(en);
+  end;
+end;
+
+procedure TEventHandler.ReactivateBefore(l : TLink; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ReactivateBefore(l);
+end;
+
+procedure TEventHandler.ReactivateDelay(t: Double);
+begin
+  ReactivateAt(SimTime + t);
+end;
+
+procedure TEventHandler.ReactivateDelay(t: Double; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ReactivateDelay(t);
+end;
+
+procedure TEventHandler.ReactivatePriorAt(t: Double);
+begin
+  // Для текущего и пассивного процессов требуется создание нового события
+  if Idle or Event.IsFirst then
+  begin
+    ActivatePriorAt(t);
+    Exit;
+  end;
+  if t < SimTime then
+    t := SimTime;
+  Event.SetTimePrior(t);
+end;
+
+procedure TEventHandler.ReactivatePriorAt(t: Double; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ReactivatePriorAt(t);
+end;
+
+procedure TEventHandler.ReactivatePriorDelay(t: Double);
+begin
+  ReactivatePriorAt(SimTime + t);
+end;
+
+procedure TEventHandler.ReactivatePriorDelay(t: Double; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  ReactivatePriorDelay(t);
+end;
+
+function TEventHandler.SimTime: Double;
+begin
+  Result := Parent.SimTime;
+end;
+
+procedure TEventHandler.StartRunning;
+begin
+  Insert(Parent.RunningObjects);
+end;
+
+// Метод Suspend "придерживает" объект-обработчик, то есть,
+//   защищает его от удаления после завершения обработки события
+procedure TEventHandler.Suspend;
+begin
+  Event := nil;
+end;
+
+// Постановка обработчика в очередь
+procedure TEventHandler.Wait(l: TList);
+begin
+  Insert(l);
+  Suspend;
+end;
+
+procedure TEventHandler.Wait(l: TList; Proc: TEventProc);
+begin
+  EventProc := Proc;
+  Insert(l);
+  Suspend;
+end;
+
+procedure TEventHandler.WaitGate(Gate: TGate; Index: Integer);
+begin
+
+end;
+
+end.
+

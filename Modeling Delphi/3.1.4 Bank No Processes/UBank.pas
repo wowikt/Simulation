@@ -1,0 +1,161 @@
+unit UBank;
+
+interface
+uses USimulation;
+
+type
+  // Класс TClient - процесс, моделирующий клиента банка
+  TClient = class(TLink)
+  public
+    StartingTime : Double;
+  end;
+
+  // Класс TClientGenerator - процесс, порождающий клиентов банка
+  TClientGenerator = class(TProcess)
+  protected
+    procedure RunProcess; override;
+  end;
+
+  // Класс TCashman - процесс, моделирующий работу кассира
+  TCashman = class(TProcess)
+  protected
+    procedure RunProcess; override;
+  end;
+
+  // Класс TBankSimulation - моделирование работы банка
+  TBankSimulation = class(TSimulation)
+  public
+    Generator : TClientGenerator;
+    Cashman : TCashman;
+    InBankTime : TStatistics;
+    InBankHist : THistogram;
+    CashStat : TServiceStatistics;
+    Queue : TList;
+    NotWaited : Integer;
+    destructor Destroy; override;
+    procedure StopStat; override;
+  protected
+    procedure RunSimulation; override;
+    procedure Init; override;
+  end;
+
+var
+  rndClient : TRandom;
+  rndCashman : TRandom;
+  MaxClientCount : Integer = 100;
+  MeanClientInterval : Double = 5;
+  MinCashTime : Double = 2;
+  MaxCashTime : Double = 6;
+  VisTimeStep : Double = 0.5;
+
+implementation
+
+{ TClientGenerator }
+
+procedure TClientGenerator.RunProcess;
+var
+  i : Integer;
+  par : TBankSimulation;
+  cl : TClient;
+begin
+  par := Parent as TBankSimulation;
+  for i := 1 to MaxClientCount do
+  begin
+    ClearFinished;
+    // Создать клиента
+    cl := TClient.Create;
+    // Отметить время создания
+    cl.StartingTime := SimTime;
+    // Включить клиента в систему
+    cl.Insert(par.Queue);
+    // Активировать кассира
+    par.Cashman.ActivateDelay(0);
+    Hold(rndClient.Exponential(MeanClientInterval));
+  end;
+end;
+
+{ TCashman }
+
+procedure TCashman.RunProcess;
+var
+  Client : TClient;
+  InTime : Double;
+  par : TBankSimulation;
+begin
+  par := Parent as TBankSimulation;
+  while True do
+  begin
+    // Если очередь пуста, ждать прибытия клиента
+    while par.Queue.Empty do
+      Passivate;
+
+    // Извлечь первого клиента из очереди
+    Client := par.Queue.First as TClient;
+    Client.Insert(par.RunningObjects);
+
+    // Если клиент не ждал, учесть его
+    if Client.StartingTime = SimTime then
+      Inc(par.NotWaited);
+
+    // Выполнить обслуживание
+    par.CashStat.Start(SimTime);
+    Hold(rndCashman.Uniform(MinCashTime, MaxCashTime));
+    par.CashStat.Finish(SimTime);
+
+    // Учесть полное время пребывания в банке
+    InTime := SimTime - Client.StartingTime;
+    par.InBankTime.AddData(InTime);
+    par.InBankHist.AddData(InTime);
+
+    // Закончить работу клиента
+    Client.Insert(par.FinishedObjects);
+
+    // Если все клиенты обслужены, завершить работу
+    if par.CashStat.Finished >= MaxClientCount then
+      par.ActivateDelay(0);
+  end;
+end;
+
+{ TBankSimulation }
+
+destructor TBankSimulation.Destroy;
+begin
+  Cashman.Free;
+  Queue.Free;
+  InBankTime.Free;
+  InBankHist.Free;
+  CashStat.Free;
+  inherited;
+end;
+
+procedure TBankSimulation.Init;
+begin
+  inherited;
+  Queue := TList.Create;
+  Cashman := TCashman.Create;
+  Generator := TClientGenerator.Create;
+  InBankTime := TStatistics.Create;
+  CashStat := TServiceStatistics.Create(1, 0, 0);
+  InBankHist := TUniformHistogram.Create(2, 2, 30);
+  NotWaited := 0;
+  MakeVisualizator(VisTimeStep);
+end;
+
+procedure TBankSimulation.RunSimulation;
+begin
+  // Запустить процесс создания клиентов
+  Generator.ActivateDelay(0);
+
+  // Ждать конца имитации
+  Passivate;
+  StopStat;
+end;
+
+procedure TBankSimulation.StopStat;
+begin
+  inherited;
+  Queue.StopStat(SimTime);
+  CashStat.StopStat(SimTime);
+end;
+
+end.

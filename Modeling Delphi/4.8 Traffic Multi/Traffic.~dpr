@@ -1,0 +1,71 @@
+program Traffic;
+
+{$APPTYPE CONSOLE}
+
+uses
+  SysUtils,
+  UTraffic in 'UTraffic.pas',
+  USimulation in '..\USimulation\USimulation.pas';
+
+var
+  // ОБъект имитации
+  trf : TTraffic;
+  // Статистика по среднему времени ожидания
+  GlWaitStat : array [TDirection] of TStatistics;
+  // Параметры циклов перебора значений
+  MinLeftTime : Double = 57;
+  MinRightTime : Double = 42;
+  LeftTimeStep : Double = 2;
+  RightTimeStep : Double = 2;
+  LeftStepCount : Integer = 4;
+  RightStepCount : Integer = 4;
+  // Количество прогонов в серии
+  RunCount : Integer = 400;
+  i, iLeft, iRight : Integer;
+
+begin
+  { TODO -oUser -cConsole Main : Insert code here }
+  rndCar := TRandom.Create;
+  GlWaitStat[dirLeftRight] := TStatistics.Create;
+  GlWaitStat[dirRightLeft] := TStatistics.Create;
+  // Перебор параметров имитации
+  for iLeft := 0 to LeftStepCount - 1 do
+    for iRight := 0 to RightStepCount - 1 do
+    begin
+      // Задать времена открытия светофоров
+      OpenTime[dirLeftRight] := MinLeftTime + iLeft * LeftTimeStep;
+      OpenTime[dirRightLeft] := MinRightTime + iRight * RightTimeStep;
+      // Очистить статистики
+      GlWaitStat[dirLeftRight].Clear;
+      GlWaitStat[dirRightLeft].Clear;
+      // Выполнить серию прогонов
+      for i := 1 to 400 do
+      begin
+        // Создать имитацию и запустить ее
+        trf := TTraffic.Create;
+        SwitchTo(trf);
+        // Собрать статистику
+        GlWaitStat[dirLeftRight].AddData(trf.WaitStat[dirLeftRight].Mean);
+        GlWaitStat[dirRightLeft].AddData(trf.WaitStat[dirRightLeft].Mean);
+        // Удалить имитацию
+        trf.Free;
+        // Отобразить ход выполнения
+        if i mod 10 = 0 then
+          Write('.');
+      end;
+      // Отобразить результаты серии прогонов
+      WriteLn;
+      WriteLn('Left open time = ', OpenTime[dirLeftRight] : 4 : 0,
+          ', right open time = ', OpenTime[dirRightLeft] : 4 : 0);
+      WriteLn('Left wait time = ', GlWaitStat[dirLeftRight].Mean : 8 : 4,
+          ' +- ', GlWaitStat[dirLeftRight].Deviation : 6 : 4);
+      WriteLn('Right wait time = ', GlWaitStat[dirRightLeft].Mean : 8 : 4,
+          ' +- ', GlWaitStat[dirRightLeft].Deviation : 6 : 4);
+      WriteLn;
+    end;
+  // Закончить работу
+  GlWaitStat[dirLeftRight].Free;
+  GlWaitStat[dirRightLeft].Free;
+  WriteLn('Done.');
+  ReadLn;
+end.

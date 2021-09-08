@@ -1,0 +1,161 @@
+unit UTraffic;
+
+interface
+uses USimulation;
+
+type
+  TGenerator = class(TProcess)
+  public
+    constructor Create(Idx : Integer; Mean : Double);
+  protected
+    Index : Integer;
+    MeanInterval : Double;
+    procedure RunProcess; override;
+  end;
+
+  TCar = class(TProcess)
+  public
+    constructor Create(Idx : Integer);
+  protected
+    Index : Integer;
+    procedure RunProcess; override;
+  end;
+
+  TLights = class(TProcess)
+  protected
+    procedure RunProcess; override;
+  end;
+
+  TTraffic = class(TSimulation)
+  public
+    LightRes : array [1 .. 2] of TResource;
+    LightGate : array [1 .. 2] of TGate;
+    OpenTime : array [1 .. 2] of Double;
+    Gen : array [1 .. 2] of TGenerator;
+    Lights : TLights;
+    WaitStat : TStatistics;
+    Finished : TList;
+    constructor Create(OpnTm1, OpnTm2 : Double);
+    destructor Destroy; override;
+  protected
+    procedure Init; override;
+    procedure RunSimulation; override;
+  end;
+
+var
+  rndCar : TRandom;
+
+implementation
+
+{ TGenerator }
+
+constructor TGenerator.Create(Idx: Integer; Mean: Double);
+begin
+  Index := Idx;
+  MeanInterval := Mean;
+  inherited Create;
+end;
+
+procedure TGenerator.RunProcess;
+begin
+  while True do
+  begin
+    ActivateDelay(TCar.Create(Index), 0);
+    Hold(rndCar.Exponential(MeanInterval));
+  end;
+end;
+
+{ TCar }
+
+constructor TCar.Create(Idx: Integer);
+begin
+  Index := Idx;
+  inherited Create;
+end;
+
+procedure TCar.RunProcess;
+var
+  par : TTraffic;
+begin
+  par := Parent as TTraffic;
+  GetResource(par.LightRes[Index], 1, 0);
+  WaitGate(par.LightGate[Index], 0);
+  par.WaitStat.AddData(SimTime - StartingTime);
+  if SimTime > StartingTime then
+    Hold(2);
+  ReleaseResource(par.LightRes[Index], 1);
+  InsertLast(par.Finished);
+  Passivate;
+end;
+
+{ TLights }
+
+procedure TLights.RunProcess;
+var
+  par : TTraffic;
+begin
+  par := Parent as TTraffic;
+  while True do
+  begin
+    par.Finished.Clear;
+    Hold(55);
+    OpenGate(par.LightGate[1]);
+    Hold(par.OpenTime[1]);
+    CloseGate(par.LightGate[1]);
+    Hold(55);
+    OpenGate(par.LightGate[2]);
+    Hold(par.OpenTime[2]);
+    CloseGate(par.LightGate[2]);
+  end;
+end;
+
+{ TTraffic }
+
+constructor TTraffic.Create(OpnTm1, OpnTm2: Double);
+begin
+  OpenTime[1] := OpnTm1;
+  OpenTime[2] := OpnTm2;
+  inherited Create;
+end;
+
+destructor TTraffic.Destroy;
+begin
+  Gen[1].Free;
+  Gen[2].Free;
+  Lights.Free;
+  LightGate[1].Free;
+  LightGate[2].Free;
+  LightRes[1].Free;
+  LightRes[2].Free;
+  Finished.Free;
+  inherited;
+end;
+
+procedure TTraffic.Init;
+begin
+  inherited;
+  Finished := TList.Create;
+  Gen[1] := TGenerator.Create(1, 9);
+  Gen[2] := TGenerator.Create(2, 12);
+  LightGate[1] := TGate.Create(False, 1, 0);
+  LightGate[2] := TGate.Create(False, 1, 0);
+  LightRes[1] := TResource.Create(1, 0, 1, 0);
+  LightRes[2] := TResource.Create(1, 0, 1, 0);
+  Lights := TLights.Create;
+  WaitStat := TStatistics.Create;
+end;
+
+procedure TTraffic.RunSimulation;
+begin
+  ActivateDelay(Gen[1], 0);
+  ActivateDelay(Gen[2], 0);
+  ActivateDelay(Lights, 0);
+  Hold(3600);
+  LightGate[1].StopStat(SimTime);
+  LightGate[2].StopStat(SimTime);
+  LightRes[1].StopStat(SimTime);
+  LightRes[2].StopStat(SimTime);
+  Detach;
+end;
+
+end.

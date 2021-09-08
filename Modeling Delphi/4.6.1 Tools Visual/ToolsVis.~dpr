@@ -1,0 +1,13 @@
+program ToolsVis;
+
+uses
+  Forms,
+  UMachine in 'UMachine.pas' {frMachine};
+
+{$R *.res}
+
+begin
+  Application.Initialize;
+  Application.CreateForm(TfrMachine, frMachine);
+  Application.Run;
+end.
